@@ -1,0 +1,45 @@
+from . import payments
+from django.urls import path
+
+from . import views, control, shop, operations, manual_invoices, invoice_edits
+
+app_name = "sanjilas"
+urlpatterns = [
+    path('control/invoices/<uuid:pk>/edit/',invoice_edits.detail),
+    path('control/invoices/<uuid:pk>/preview/',invoice_edits.preview),
+    path('control/invoices/<uuid:pk>/save/',invoice_edits.save),
+    path('control/invoices/<uuid:pk>/history/',invoice_edits.history),
+    path('control/manual-invoices/catalog/',manual_invoices.catalog),
+    path('control/manual-invoices/preview/',manual_invoices.preview),
+    path('control/manual-invoices/issue/',manual_invoices.issue),
+    path('shop/orders/<uuid:order_id>/invoice/',shop.invoice),
+    path('control/operations/orders/',operations.orders),
+    path('control/operations/orders/<uuid:pk>/',operations.order_detail),
+    path('control/operations/orders/<uuid:pk>/payment/',operations.payment),
+    path('control/operations/orders/<uuid:pk>/payments/',payments.record),
+    path('shop/delivery/',shop.delivery_area),
+    path('control/operations/stock/',operations.stock),
+    path('control/operations/stock/<str:model>/<int:pk>/movements/',operations.movements),
+    path('control/operations/stock/<str:model>/<int:pk>/adjust/',operations.adjust),
+    path('shop/cart/',shop.cart),
+    path('shop/cart/items/',shop.cart_item),
+    path('shop/checkout/',shop.checkout),
+    path('shop/orders/',shop.orders),
+    path('shop/orders/<uuid:order_id>/cancel/',shop.cancel),
+    path("account/session/", control.account_session),
+    path("account/login/", control.account_login),
+    path("account/logout/", control.account_logout),
+    path("health/", views.health, name="health"),
+    path("site-settings/", views.site_settings, name="site-settings"),
+    path("home/", views.home_page, name="home"),
+    path("control/session/", control.session, name="control-session"),
+    path("control/login/", control.sign_in, name="control-login"),
+    path("control/logout/", control.sign_out, name="control-logout"),
+    path("control/models/<str:app_label>/<str:model_name>/", control.records, name="control-records"),
+    path("control/models/<str:app_label>/<str:model_name>/new/", control.record_form, name="control-add"),
+    path("control/models/<str:app_label>/<str:model_name>/export/", control.export_records, name="control-export"),
+    path("control/models/<str:app_label>/<str:model_name>/options/<str:field_name>/", control.field_options, name="control-options"),
+    path("control/models/<str:app_label>/<str:model_name>/image/<str:field_name>/", control.image_preview, name="control-image-preview"),
+    path("control/models/<str:app_label>/<str:model_name>/<str:pk>/delete/", control.delete_record, name="control-delete"),
+    path("control/models/<str:app_label>/<str:model_name>/<str:pk>/", control.record_form, name="control-record"),
+]

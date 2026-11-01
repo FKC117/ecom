@@ -1,0 +1,23 @@
+import {useState} from 'react'
+import {controlRequest} from './api'
+
+export default function PaymentPanel({data,labels:l,onSaved}) {
+  const [kind,setKind]=useState('')
+  const [defaultDate]=useState(()=>new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16))
+  const [verify,setVerify]=useState(false)
+  const [key,setKey]=useState(()=>crypto.randomUUID())
+  const [busy,setBusy]=useState(false)
+  const [error,setError]=useState(null)
+  const money=(amount)=>new Intl.NumberFormat(undefined,{style:'currency',currency:data.currency}).format(Number(amount))
+  async function submit(event){
+    event.preventDefault();setBusy(true);setError(null)
+    const body=new FormData(event.currentTarget);body.set('kind',kind);body.set('operation_key',key);body.set('expected_version',data.revision)
+    const date=new Date(body.get('occurred_at'));body.set('occurred_at',date.toISOString())
+    try{await controlRequest(`operations/orders/${data.id}/payments/`,{method:'POST',body});setKind('');setKey(crypto.randomUUID());onSaved()}
+    catch(failure){setError(failure)}finally{setBusy(false)}
+  }
+  return <section className="control-form-section">{data.simulated&&<p className="bag-advance-status">{l.dummy_payment_completed}</p>}<h2>{l.payment_status}: {l[data.payment_status]}</h2><dl className="bag-totals">{['received','refunded','net_paid','amount_due','refund_due'].map((field)=><div key={field}><dt>{l[field]}</dt><dd>{money(data[field])}</dd></div>)}</dl>{data.can_mark_payment&&<div className="control-toolbar"><button className="control-button primary" disabled={busy||Number(data.amount_due)<=0} onClick={()=>{setVerify(false);setKind('payment');setError(null)}}>{l.record_payment}</button><button className="control-button" disabled={busy||Number(data.net_paid)<=0} onClick={()=>{setVerify(false);setKind('refund');setError(null)}}>{l.record_refund}</button></div>}
+  {data.advance_pending&&<section className="bag-advance-status"><h3>{l.advance_pending}</h3><p>{l[`method_${data.advance_channel}`]} · {money(data.advance_amount)} · {data.advance_reference}</p><p>{l.advance_verify_help}</p>{data.can_mark_payment&&<button className="control-button" disabled={busy} onClick={()=>{setVerify(true);setKind('payment');setError(null)}}>{l.advance_verify}</button>}</section>}
+  {kind&&<form key={`${kind}-${verify}`} className="ops-form" onSubmit={submit}><h3>{l[kind==='payment'?'record_payment':'record_refund']}</h3><p>{l.payment_manual_note}</p>{error&&<div className="control-error" role="alert">{error.message}{Object.values(error.fields||{}).flat().map((message,index)=><p key={index}>{message}</p>)}</div>}<div className="control-field-grid"><label>{l.payment_amount}<input defaultValue={verify?data.advance_amount:undefined} name="amount" type="number" min="0.01" max={kind==='payment'?data.amount_due:data.net_paid} step="0.01" required disabled={busy}/></label><label>{l.payment_method}<select defaultValue={verify?data.advance_channel:undefined} name="method" required disabled={busy}>{['cash','bkash','nagad','bank','card','other'].map((method)=><option key={method} value={method}>{l[`method_${method}`]}</option>)}</select></label><label>{l.payment_reference}<input defaultValue={verify?data.advance_reference:undefined} name="reference" maxLength={150} disabled={busy}/></label><label>{l.payment_date}<input name="occurred_at" type="datetime-local" defaultValue={defaultDate} required disabled={busy}/></label><label>{l.payment_notes}<textarea name="notes" required maxLength={500} disabled={busy}/></label></div><div className="control-toolbar"><button className="control-button primary" disabled={busy}>{busy?l.loading:l.save}</button><button type="button" className="control-button" disabled={busy} onClick={()=>setKind('')}>{l.cancel}</button></div></form>}
+  <h3>{l.payment_history}</h3>{!data.payments.length&&<p>{l.empty}</p>}<div className="control-table-wrap"><table className="control-table payment-table"><thead><tr>{['payment_date','payment','payment_amount','payment_method','payment_reference','payment_notes'].map((field)=><th key={field}>{l[field]}</th>)}</tr></thead><tbody>{data.payments.map((row)=><tr key={row.id}><td data-label={l.payment_date}><span>{new Date(row.occurred_at).toLocaleString()}<br/>{row.actor}</span></td><td data-label={l.payment}>{l[row.kind]}</td><td data-label={l.payment_amount}>{money(row.amount)}</td><td data-label={l.payment_method}>{l[`method_${row.method}`]}</td><td data-label={l.payment_reference}>{row.reference||l.blank}</td><td data-label={l.payment_notes}>{row.notes}</td></tr>)}</tbody></table></div></section>
+}
