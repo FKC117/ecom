@@ -8,7 +8,7 @@ from django.contrib.auth.models import Permission
 from django.test import TestCase,Client
 
 from .commerce import set_item,place_order
-from .models import Product,ProductVariant,Collection,InventoryMovement,Order,SiteSettings
+from .models import Product,ProductVariant,Category,InventoryMovement,Order,SiteSettings
 
 
 class OperationsTests(TestCase):
@@ -16,9 +16,9 @@ class OperationsTests(TestCase):
         self.owner=get_user_model().objects.create_superuser('ops-owner')
         self.staff=get_user_model().objects.create_user('ops-staff',is_staff=True)
         self.customer=get_user_model().objects.create_user('ops-customer')
-        collection=Collection.objects.create(name='Rings',slug='rings')
-        self.product=Product.objects.create(name='Ring',slug='ring',collection=collection,price=100,stock_quantity=10)
-        parent=Product.objects.create(name='Variant ring',slug='variant-ring',collection=collection,price=200,stock_quantity=99)
+        category=Category.objects.create(name='Rings',slug='rings')
+        self.product=Product.objects.create(name='Ring',slug='ring',category=category,price=100,stock_quantity=10)
+        parent=Product.objects.create(name='Variant ring',slug='variant-ring',category=category,price=200,stock_quantity=99)
         self.variant=ProductVariant.objects.create(product=parent,name='Size 7',sku='SIZE-7',stock_quantity=3)
         SiteSettings.objects.create()
         self.client.force_login(self.owner)

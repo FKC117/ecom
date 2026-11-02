@@ -3,7 +3,7 @@ from django.contrib import admin
 from django import forms
 from django.db import models
 from import_export.admin import ImportExportModelAdmin
-from .models import SiteSettings, HomePage, Collection, Product, ProductVariant, ProductTag, ProductFeature, ProductImage, Cart, CartItem, Order, OrderItem, InventoryMovement, InvoiceRevision, OrderPayment
+from .models import SiteSettings, HomePage, Category, Collection, Product, ProductVariant, ProductTag, ProductFeature, ProductImage, Cart, CartItem, Order, OrderItem, InventoryMovement, InvoiceRevision, OrderPayment
 from .resources import SiteSettingsResource, HomePageResource
 
 
@@ -16,7 +16,7 @@ class SiteSettingsAdmin(ImportExportModelAdmin):
     fieldsets = (
         ("Branding", {"fields": ("site_name", "tagline", "site_url", "logo", "logo_dark", "logo_alt", "favicon", "apple_touch_icon", "footer_text")}),
         ("Theme and contact", {"fields": ("palette", "default_color_mode", "contact_email")}),
-        ("Invoice details", {"fields": ("invoice_address", "invoice_phone", "invoice_note")}),
+        ("Invoice details", {"fields": ("invoice_address", "invoice_phone", "invoice_note", "invoice_generated_note", "invoice_terms_heading", "invoice_terms")}),
         ("Checkout & reservations", {"fields": ("low_stock_threshold", "cart_reservation_minutes", "shop_currency", "delivery_inside_dhaka", "delivery_outside_dhaka", "cash_on_delivery_enabled", "dummy_payments_enabled", "delivery_advance_enabled", "delivery_advance_instructions", "delivery_advance_methods")}),
         ("React control panel text", {"fields": ("control_labels",)}),
         ("SEO", {"fields": ("meta_title", "meta_description", "meta_keywords", "robots")}),
@@ -40,7 +40,7 @@ class HomePageAdmin(ImportExportModelAdmin):
     fieldsets = (
         ("Announcement", {"fields": ("announcement",)}),
         ("Hero", {"fields": ("hero_eyebrow", "hero_title", "hero_description", "hero_cta", "hero_secondary_cta", "hero_image", "hero_image_alt", "hero_caption")}),
-        ("Collections", {"fields": ("collections_eyebrow", "collections_title")}),
+        ("Category section", {"fields": ("collections_eyebrow", "collections_title")}),
         ("Featured jewellery", {"fields": ("featured_eyebrow", "featured_title", "featured_description")}),
         ("Story", {"fields": ("story_eyebrow", "story_title", "story_body", "story_image", "story_image_alt", "story_cta")}),
         ("Contact", {"fields": ("contact_eyebrow", "contact_title", "contact_body", "contact_cta")}),
@@ -54,22 +54,27 @@ class HomePageAdmin(ImportExportModelAdmin):
         return False
 
 
-@admin.register(Collection)
-class CollectionAdmin(ImportExportModelAdmin):
+@admin.register(Category)
+class CategoryAdmin(ImportExportModelAdmin):
     search_fields = ("name", "description")
     list_display = ("name", "position", "is_active")
     list_editable = ("position", "is_active")
     prepopulated_fields = {"slug": ("name",)}
 
 
+@admin.register(Collection)
+class CollectionAdmin(CategoryAdmin):
+    pass
+
+
 @admin.register(Product)
 class ProductAdmin(ImportExportModelAdmin):
-    list_display = ("name", "sku", "collection", "price", "discounted_price", "currency", "is_featured", "is_active")
-    list_filter = ("collection", "is_active", "is_featured")
+    list_display = ("name", "sku", "category", "price", "discounted_price", "currency", "is_featured", "is_active")
+    list_filter = ("category", "collections", "is_active", "is_featured")
     search_fields = ("name", "description", "sku")
     readonly_fields = ("discounted_price",)
     fieldsets = (
-        ('Product', {'fields': ('name', 'slug', 'collection', 'sku', 'subtitle', 'description')}),
+        ('Product', {'fields': ('name', 'slug', 'category', 'collections', 'sku', 'subtitle', 'description')}),
         ('Pricing & discount', {'fields': ('price', 'currency', 'discount_type', 'discount_value', 'discounted_price')}),
         ('Details & tagging', {'fields': ('material', 'gemstone', 'care_instructions', 'tags')}),
         ('Images', {'fields': ('image', 'image_alt')}),

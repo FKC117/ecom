@@ -15,6 +15,7 @@ from . import control, commerce
 from .models import Order, OrderItem, Product, ProductVariant, InventoryMovement, SiteSettings
 from .operations import allowed
 from .delivery import rates
+from .locations import directory
 
 
 def permitted(request):
@@ -82,14 +83,14 @@ def catalog(request):
         for item in qs:
             if not allowed(ma,request,item): continue
             product=item if model is Product else item.product
-            if not product.is_active or not product.collection.is_active or not item.is_active:continue
+            if not product.is_active or not product.category.is_active or not item.is_active:continue
             name=product.name if model is Product else f'{product.name} / {item.name}'
             if term and term not in f'{name} {item.sku or ""}'.casefold():continue
             rows.append({'id':item.pk,'model':item._meta.model_name,'name':name,'sku':item.sku or '',
                          'price':item.discounted_price,'regular_price':item.regular_price,'catalog_discount_type':item.discount_source.discount_type,'catalog_discount_value':item.discount_source.discount_value,'discount_amount':item.regular_price-item.discounted_price if item.regular_price is not None else 0,'currency':product.currency,'available':commerce.available_quantity(item)})
             if len(rows)>=50:break
     site=SiteSettings.load()
-    return control.JsonResponse({'items':rows[:50],'currency':site.shop_currency,'shipping_fee':site.shipping_fee,'delivery_rates':rates(site),'can_record_payment':request.user.has_perm('sanjilas.mark_payment')})
+    return control.JsonResponse({'items':rows[:50],'currency':site.shop_currency,'shipping_fee':site.shipping_fee,'delivery_rates':rates(site),'can_record_payment':request.user.has_perm('sanjilas.mark_payment'),'locations':directory()})
 
 
 @transaction.atomic
@@ -102,6 +103,9 @@ def build(request,post,issue=False,editing=None):
     from .delivery import charge
     values['delivery_zone']=values.get('delivery_zone') or 'custom'
     shipping=charge(SiteSettings.load(),values['delivery_zone'],shipping)
+    from .locations import resolve
+    if editing is None or values['city']!=editing.city or values['area']!=editing.area:
+        values.update(resolve(values['city'],values['area'],required=False))
     if not isinstance(lines,list) or not 1<=len(lines)<=50:raise ValidationError({'items':control.labels()['manual_items_required']})
     if editing is None:
         with connection.cursor() as cursor:
@@ -189,8 +193,8 @@ def build(request,post,issue=False,editing=None):
         advance=dict(payment_form.cleaned_data)
         from django.utils import timezone
         if advance['occurred_at']>timezone.now():raise ValidationError(control.labels()['payment_future'])
-    quote=hashlib.sha256(json.dumps({'details':values,'lines':snapshots,'currency':currency,'shipping':shipping,'advance':advance},sort_keys=True,default=str).encode()).hexdigest()
-    if not issue:return {'amount_paid':paid,'amount_due':total-paid,'advance':advance,'line_discounts':[(row['regular_price']-row['unit_price'])*row['quantity'] for row in snapshots],'discount_total':sum((row['regular_price']-row['unit_price'])*row['quantity'] for row in snapshots),'quote':quote,'details':values,'items':snapshots,'regular_subtotal':sum(row['regular_price']*row['quantity'] for row in snapshots),'subtotal':subtotal,'shipping_fee':shipping,'total':total,'currency':currency}
+    quote=hashlib.sha256(json.dumps({'details':{k:v for k,v in values.items() if k not in ['city_record','area_record']},'lines':snapshots,'currency':currency,'shipping':shipping,'advance':advance},sort_keys=True,default=str).encode()).hexdigest()
+    if not issue:return {'amount_paid':paid,'amount_due':total-paid,'advance':advance,'line_discounts':[(row['regular_price']-row['unit_price'])*row['quantity'] for row in snapshots],'discount_total':sum((row['regular_price']-row['unit_price'])*row['quantity'] for row in snapshots),'quote':quote,'details':{k:v for k,v in values.items() if k not in ['city_record','area_record']},'items':snapshots,'regular_subtotal':sum(row['regular_price']*row['quantity'] for row in snapshots),'subtotal':subtotal,'shipping_fee':shipping,'total':total,'currency':currency}
     if post.get('quote')!=quote:raise ValidationError({'items':control.labels()['manual_review_changed']})
     order=Order(user=None,created_by=request.user,source='manual',checkout_key=key,currency=site.shop_currency,subtotal=subtotal,shipping_fee=shipping,total=total,**values)
     order.full_clean();order._commerce_write=True;order.save()

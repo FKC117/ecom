@@ -4,7 +4,7 @@ from django.template.loader import render_to_string
 from django.db.models import ImageField, Prefetch
 from django.utils.html import format_html, json_script
 from .branding import public_settings
-from .models import SiteSettings, HomePage, Collection, Product, ProductVariant, ProductImage, ProductTag, Cart
+from .models import SiteSettings, HomePage, Category, Collection, Product, ProductVariant, ProductImage, ProductTag, Cart
 from django.views.decorators.http import require_GET
 from django.views.decorators.cache import never_cache
 from .images import image_metadata
@@ -54,6 +54,7 @@ def home_page(request):
     def catalog(product):
         data = serialize(product)
         data.update(pricing(product))
+        data['collections']=[item.pk for item in product.collections.all() if item.is_active]
         data['tags'] = tags(product)
         data['features'] = [{'id': f.pk, 'name': f.name, 'value': f.value} for f in product.features.all()]
         data['gallery'] = [serialize(image) for image in product.gallery.all()]
@@ -75,9 +76,10 @@ def home_page(request):
     return JsonResponse({
         "site": public_settings(SiteSettings.load(), request),
         "page": {**serialize(page), 'labels': {**shop_labels(), **page.labels}},
+        "categories": [serialize(item) for item in Category.objects.filter(is_active=True)],
         "collections": [serialize(item) for item in Collection.objects.filter(is_active=True)],
-        "products": [catalog(item) for item in Product.objects.filter(is_active=True, collection__is_active=True).prefetch_related(
-            Prefetch('tags', queryset=ProductTag.objects.filter(is_active=True)), 'features',
+        "products": [catalog(item) for item in Product.objects.filter(is_active=True, category__is_active=True).prefetch_related(
+            'collections', Prefetch('tags', queryset=ProductTag.objects.filter(is_active=True)), 'features',
             Prefetch('gallery', queryset=ProductImage.objects.filter(is_active=True)),
             Prefetch('variants', queryset=ProductVariant.objects.filter(is_active=True).select_related('product').prefetch_related(Prefetch('tags', queryset=ProductTag.objects.filter(is_active=True)))),
         )],

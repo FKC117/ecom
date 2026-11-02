@@ -19,6 +19,7 @@ def public_settings(settings, request):
             else:
                 value = ""
         data[field.name] = value
+    data['invoice_terms']=settings.invoice_terms.replace('{site_name}',settings.site_name)
     data["meta_title"] = settings.meta_title or settings.site_name
     data["og_title"] = settings.og_title or data["meta_title"]
     data["og_description"] = settings.og_description or settings.meta_description

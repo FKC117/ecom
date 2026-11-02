@@ -12,7 +12,7 @@ from django.utils import timezone
 from import_export.admin import ImportExportModelAdmin
 
 from .commerce import ShopError, get_cart, place_order, reserved_quantity, set_item, transition_order
-from .models import Cart, CartItem, Collection, InventoryMovement, Order, OrderItem, Product, ProductVariant, SiteSettings
+from .models import Cart, CartItem, Category, InventoryMovement, Order, OrderItem, Product, ProductVariant, SiteSettings
 
 DETAILS={'customer_name':'Test Customer','email':'test@example.com','phone':'01000000000','address':'Test address','city':'Dhaka','area':'Dhanmondi','postal_code':'','notes':''}
 
@@ -21,9 +21,11 @@ class CommerceTests(TestCase):
     def setUp(self):
         self.user=get_user_model().objects.create_user('buyer')
         self.other=get_user_model().objects.create_user('other')
-        self.collection=Collection.objects.create(name='Rings',slug='rings')
-        self.product=Product.objects.create(name='Ring',slug='ring',collection=self.collection,price=1000,track_stock=True,stock_quantity=2,discount_type='percent',discount_value=10)
+        self.category=Category.objects.create(name='Rings',slug='rings')
+        self.product=Product.objects.create(name='Ring',slug='ring',category=self.category,price=1000,track_stock=True,stock_quantity=2,discount_type='percent',discount_value=10)
         SiteSettings.objects.create(shipping_fee=50,delivery_inside_dhaka=50,delivery_outside_dhaka=100)
+        from .models import City,Area
+        city=City.objects.create(name='Dhaka');Area.objects.create(city=city,name='Dhanmondi')
 
     def test_selected_delivery_area_uses_backend_rate_and_rejects_changed_rate(self):
         self.client.force_login(self.user);self.reserve()
@@ -95,6 +97,73 @@ class CommerceTests(TestCase):
         order=Order.objects.get();self.assertEqual(order.email,'');self.assertEqual(order.postal_code,'');self.assertEqual(order.notes,'');self.assertEqual(order.area,'Dhanmondi')
         invoice=self.client.get(f'/api/shop/orders/{order.pk}/invoice/').json()['order']
         self.assertEqual(invoice['area'],'Dhanmondi')
+
+    def test_checkout_rejects_area_from_another_city_and_saves_foreign_keys(self):
+        from .models import City,Area
+        other_city=City.objects.create(name='Chattogram')
+        other_area=Area.objects.create(city=other_city,name='Agrabad')
+        self.client.force_login(self.user);self.reserve()
+        values={**DETAILS,'checkout_key':str(uuid.uuid4()),'quote':self.client.get('/api/shop/cart/').json()['quote'],'area':str(other_area.pk),'city':str(City.objects.get(name='Dhaka').pk)}
+        response=self.client.post('/api/shop/checkout/',values)
+        self.assertEqual(response.status_code,400);self.assertFalse(Order.objects.exists())
+        values['city']=str(other_city.pk)
+        response=self.client.post('/api/shop/checkout/',values)
+        self.assertEqual(response.status_code,200,response.content)
+        order=Order.objects.get();self.assertEqual(order.city_record,other_city);self.assertEqual(order.area_record,other_area)
+        other_city.name='Renamed city';other_city.save()
+        order.refresh_from_db();self.assertEqual(order.city,'Chattogram')
+        other_area.city=City.objects.get(name='Dhaka')
+        with self.assertRaises(ValidationError):other_area.save()
+
+    def test_location_typeahead_search_is_scoped_active_and_limited(self):
+        from .models import City,Area
+        dhaka=City.objects.get(name='Dhaka');other=City.objects.create(name='Other city')
+        Area.objects.create(city=dhaka,name='Mohammadpur')
+        Area.objects.create(city=other,name='Mohammadpur Other')
+        Area.objects.create(city=dhaka,name='Mohakhali Hidden',is_active=False)
+        response=self.client.get('/api/shop/locations/',{'kind':'city','q':'d'})
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.json()['results'],[{'id':dhaka.pk,'name':'Dhaka'}])
+        rows=self.client.get('/api/shop/locations/',{'kind':'area','city':dhaka.pk,'q':'mo'}).json()['results']
+        self.assertEqual([row['name'] for row in rows],['Dhanmondi','Mohammadpur'])
+        self.assertEqual(self.client.get('/api/shop/locations/',{'kind':'area','q':'m'}).json()['results'],[])
+        self.assertEqual(self.client.get('/api/shop/locations/',{'kind':'city','q':''}).json()['results'],[])
+        for i in range(25):Area.objects.create(city=dhaka,name=f'Example {i:02d}')
+        self.assertEqual(len(self.client.get('/api/shop/locations/',{'kind':'area','city':dhaka.pk,'q':'e'}).json()['results']),20)
+        dhaka.is_active=False;dhaka.save()
+        self.assertEqual(self.client.get('/api/shop/locations/',{'kind':'area','city':dhaka.pk,'q':'mo'}).json()['results'],[])
+
+    def test_cart_draft_persists_without_extending_hold_and_expires(self):
+        import json
+        self.client.force_login(self.user);self.reserve()
+        cart=self.client.get('/api/shop/cart/').json();expiry=CartItem.objects.get().expires_at
+        city=__import__('sanjilas.models',fromlist=['City']).City.objects.get(name='Dhaka')
+        area=city.areas.get(name='Dhanmondi')
+        values={'customer_name':'Draft customer','phone':'01000000000','city':{'id':city.pk},'area':{'id':area.pk},'payment_method':'pay_now','checkout_open':True}
+        response=self.client.post('/api/shop/cart/draft/',{'expiry':cart['draft_expiry'],'draft':json.dumps(values)})
+        self.assertEqual(response.status_code,200,response.content)
+        saved=self.client.get('/api/shop/cart/').json()['draft']
+        self.assertEqual(saved['customer_name'],'Draft customer');self.assertEqual(saved['city']['name'],'Dhaka');self.assertEqual(saved['area']['name'],'Dhanmondi')
+        self.assertTrue(saved['checkout_open']);self.assertEqual(CartItem.objects.get().expires_at,expiry)
+        self.client.force_login(self.other);self.assertEqual(self.client.get('/api/shop/cart/').json()['draft'],{})
+        self.client.force_login(self.user)
+        CartItem.objects.update(expires_at=timezone.now()-timedelta(seconds=1))
+        Cart.objects.filter(user=self.user).update(draft_expires_at=timezone.now()-timedelta(seconds=1))
+        self.assertEqual(self.client.get('/api/shop/cart/').json()['draft'],{})
+        self.assertEqual(Cart.objects.get(user=self.user).checkout_draft,{})
+        self.assertEqual(self.client.post('/api/shop/cart/draft/',{'expiry':cart['draft_expiry'],'draft':json.dumps(values)}).status_code,409)
+
+    def test_cart_shares_ten_minute_deadline_and_checkout_clears_draft(self):
+        import json
+        self.client.force_login(self.user);self.reserve()
+        first=CartItem.objects.get();self.assertLessEqual(first.expires_at-timezone.now(),timedelta(minutes=10))
+        second=Product.objects.create(name='Second ring',slug='second',category=self.category,price=100,track_stock=True,stock_quantity=2)
+        set_item(self.user,second.pk,None,1)
+        self.assertEqual(CartItem.objects.get(product=second).expires_at,first.expires_at)
+        cart=self.client.get('/api/shop/cart/').json()
+        self.assertEqual(self.client.post('/api/shop/cart/draft/',{'expiry':cart['draft_expiry'],'draft':json.dumps({'customer_name':'Draft'})}).status_code,200)
+        self.checkout()
+        self.assertEqual(Cart.objects.get(user=self.user).checkout_draft,{})
 
     def reserve(self,user=None,quantity=1,variant=None):
         return set_item(user or self.user,self.product.pk,variant.pk if variant else None,quantity)
@@ -183,6 +252,16 @@ class CommerceTests(TestCase):
         self.assertEqual(shell.status_code,200)
         self.assertContains(shell,'noindex, nofollow')
 
+    def test_invoice_terms_are_editable_and_use_current_branding(self):
+        self.reserve();order=self.checkout();self.client.force_login(self.user)
+        site=SiteSettings.load();site.site_name='Preview Atelier';site.invoice_terms_heading='Delivery information';site.invoice_terms='Inspect before accepting.\nContact {site_name} before the courier leaves.';site.save()
+        result=self.client.get(f'/api/shop/orders/{order.pk}/invoice/').json()['site']
+        self.assertEqual(result['invoice_terms_heading'],'Delivery information')
+        self.assertEqual(result['invoice_generated_note'],'This is a computer-generated invoice and does not require a signature.')
+        self.assertEqual(result['invoice_terms'],'Inspect before accepting.\nContact Preview Atelier before the courier leaves.')
+        site.invoice_terms='';site.save()
+        self.assertEqual(self.client.get(f'/api/shop/orders/{order.pk}/invoice/').json()['site']['invoice_terms'],'')
+
     def test_staff_invoice_requires_order_and_item_permissions(self):
         from django.contrib.auth.models import Permission
         self.reserve();order=self.checkout()
@@ -219,7 +298,7 @@ class CommerceTests(TestCase):
         with self.assertRaises(ShopError): self.reserve(self.other,variant=first)
         self.reserve(self.other,variant=second)
         with self.assertRaises(ShopError): self.reserve(quantity=1)
-        another=Product.objects.create(name='Other',slug='other',collection=self.collection,price=1000)
+        another=Product.objects.create(name='Other',slug='other',category=self.category,price=1000)
         with self.assertRaises(ShopError): set_item(self.user,another.pk,first.pk,1)
         order=self.checkout()
         first.refresh_from_db();second.refresh_from_db()
@@ -312,8 +391,8 @@ class CommerceTests(TestCase):
 class StockConcurrencyTests(TransactionTestCase):
     def setUp(self):
         self.users=[get_user_model().objects.create_user(name) for name in ['first','second']]
-        collection=Collection.objects.create(name='Rings',slug='rings')
-        self.product=Product.objects.create(name='Last ring',slug='last',collection=collection,price=1000,track_stock=True,stock_quantity=1)
+        category=Category.objects.create(name='Rings',slug='rings')
+        self.product=Product.objects.create(name='Last ring',slug='last',category=category,price=1000,track_stock=True,stock_quantity=1)
         for user in self.users: get_cart(user)
 
     def test_two_simultaneous_customers_cannot_reserve_the_same_last_unit(self):

@@ -359,3 +359,20 @@ Storefront checkout offers COD and an optional delivery-charge advance. Configur
 
 
 Dummy payments can be enabled in Site Settings for gateway-free checkout demonstrations. Delivery advance simulates only the server-calculated delivery fee; Pay now simulates the complete order total. Simulation and order/stock writes are one transaction and checkout-key retries cannot duplicate receipts. Generated receipts use method dummy and is_simulated=true; confirmation, staff details and invoices show a simulation notice. No money is transferred. The default remains disabled on fresh installations.
+
+
+Delivery locations are managed through City and Area in Django admin and the generated React controls. Area has a foreign key to City. Checkout and manual invoices show City first and filter Area by the chosen City. Django validates the pair and saves location foreign keys alongside historical city/area text on orders, preserving printed invoices when names change. Existing order locations populate the initial directory without changing their saved text. Required checkout fields display an asterisk; email, postal code and notes remain optional.
+
+
+Checkout City/Area fields use database-backed accessible comboboxes. Search begins after one character with 200 ms debounce, cancellation of stale requests and at most 20 active results. Area search requires a City ID. Arrow keys, Enter, Escape and native required-field validation are supported; only a selected result is submitted.
+
+
+Cart reservations default to 10 minutes and additions share the earliest active cart deadline. Checkout details auto-save to the authenticated cart, including canonical City/Area selections and payment choice. Draft APIs use session auth and CSRF, bind writes to the current expiry, never extend stock holds, and hide/clear expired drafts. Checkout and removing the last item clear the draft.
+
+
+Invoice delivery/return clauses are editable in Site Settings under Invoice details: invoice_terms_heading and invoice_terms (one clause per line). The {site_name} placeholder resolves using current backend branding. Blank terms hide the block. Clauses sit left of totals on desktop/print and below totals on mobile.
+
+
+Products now have one required Category and optional many-to-many curated Collections. The previous Rings/Necklaces/Earrings/Bracelets group table is renamed to Category without changing IDs or images; a fresh Collection directory supports cross-category edits such as Bridal or New Arrivals. Product forms expose both. Storefront browse/filter uses categories and an additional collection filter when curated collections exist. Category deactivation blocks sales; a deactivated collection only removes that curated grouping.
+
+Every product and variant has a required SKU. New forms receive a generated PRD-/VAR- code which staff may replace. Migration fills only blank product codes, while existing invoice/order SKU snapshots stay unchanged. Case-insensitive SKU uniqueness spans products and variants, serialized by a PostgreSQL advisory lock during model saves; Django admin and import-export share the same model validation.

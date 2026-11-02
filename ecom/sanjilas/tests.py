@@ -6,7 +6,7 @@ from django.test import TestCase
 from import_export.admin import ImportExportModelAdmin
 from tablib import Dataset
 
-from .models import SiteSettings, HomePage, Collection, Product, homepage_labels
+from .models import SiteSettings, HomePage, Category, Product, homepage_labels
 from .resources import SiteSettingsResource, HomePageResource
 
 
@@ -91,14 +91,14 @@ class HomePageTests(TestCase):
         self.assertEqual(data['page']['labels']['nav_story'], 'Behind the jewellery')
         self.assertEqual(self.client.post('/api/home/').status_code, 405)
 
-    def test_hidden_products_and_collections_are_excluded(self):
-        visible = Collection.objects.create(name='Rings', slug='rings')
-        hidden = Collection.objects.create(name='Hidden', slug='hidden', is_active=False)
-        Product.objects.create(name='Visible ring', slug='visible', collection=visible, price='1250.00')
-        Product.objects.create(name='Hidden ring', slug='inactive', collection=visible, is_active=False)
-        Product.objects.create(name='Hidden collection ring', slug='hidden', collection=hidden)
+    def test_hidden_products_and_categories_are_excluded(self):
+        visible = Category.objects.create(name='Rings', slug='rings')
+        hidden = Category.objects.create(name='Hidden', slug='hidden', is_active=False)
+        Product.objects.create(name='Visible ring', slug='visible', category=visible, price='1250.00')
+        Product.objects.create(name='Hidden ring', slug='inactive', category=visible, is_active=False)
+        Product.objects.create(name='Hidden category ring', slug='hidden', category=hidden)
         data = self.client.get('/api/home/').json()
-        self.assertEqual([item['name'] for item in data['collections']], ['Rings'])
+        self.assertEqual([item['name'] for item in data['categories']], ['Rings'])
         self.assertEqual([item['name'] for item in data['products']], ['Visible ring'])
         self.assertEqual(data['products'][0]['price'], '1250.00')
 
@@ -136,7 +136,7 @@ class HomePageTests(TestCase):
     def test_all_models_have_admin_import_export(self):
         user = get_user_model().objects.create_superuser('owner', 'owner@example.com', 'test-password')
         self.client.force_login(user)
-        for model in (HomePage, Collection, Product):
+        for model in (HomePage, Category, Product):
             self.assertIsInstance(admin.site._registry[model], ImportExportModelAdmin)
             path = f'/admin/sanjilas/{model._meta.model_name}/'
             for suffix in ('', 'add/', 'import/', 'export/'):

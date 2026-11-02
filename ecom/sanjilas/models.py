@@ -13,6 +13,15 @@ from .shop_copy import shop_labels
 from .image_fields import WebPImageField
 
 
+def invoice_terms_default():
+    return (
+        'Inspect the items and quantity in the courier’s presence before accepting delivery.\n'
+        'Report any damage or wrong item to {site_name} immediately, before the courier leaves. Damage-related or wrong-item exchange claims reported after the courier leaves will not be accepted.\n'
+        'Other returns or exchanges require prior approval. {site_name} will confirm the applicable request period and instructions through its official contact channels.\n'
+        'For an approved return or exchange, keep the item unused and retain its original packaging, tags and invoice.'
+    )
+
+
 class SiteSettings(models.Model):
     class Palette(models.TextChoices):
         CHAMPAGNE = "champagne", "Champagne Gold"
@@ -37,8 +46,11 @@ class SiteSettings(models.Model):
     invoice_address = models.TextField(blank=True)
     invoice_phone = models.CharField(max_length=40, blank=True)
     invoice_note = models.TextField(blank=True)
+    invoice_generated_note = models.CharField(max_length=255,default='This is a computer-generated invoice and does not require a signature.')
+    invoice_terms_heading = models.CharField(max_length=150,default='Important information')
+    invoice_terms = models.TextField(blank=True,default=invoice_terms_default,help_text='One invoice clause per line. Use {site_name} for the current site name. Leave blank to hide the block.')
     low_stock_threshold = models.PositiveIntegerField(default=3)
-    cart_reservation_minutes = models.PositiveIntegerField(default=20, validators=[MinValueValidator(1)], help_text='A cart item reserves stock for this many minutes; viewing the cart never extends the hold.')
+    cart_reservation_minutes = models.PositiveIntegerField(default=10, validators=[MinValueValidator(1)], help_text='A cart item reserves stock for this many minutes; viewing the cart never extends the hold.')
     shop_currency = models.CharField(max_length=3, default='BDT')
     shipping_fee = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
     delivery_inside_dhaka = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
@@ -169,6 +181,23 @@ class HomePage(models.Model):
         return self.hero_title.replace("\n", " ")
 
 
+class Category(models.Model):
+    name = models.CharField(max_length=150)
+    slug = models.SlugField(unique=True)
+    description = models.CharField(max_length=250, blank=True)
+    image = WebPImageField(upload_to="collections/", blank=True)
+    image_alt = models.CharField(max_length=250, blank=True)
+    position = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ("position", "pk")
+        verbose_name_plural = "Categories"
+
+    def __str__(self):
+        return self.name
+
+
 class Collection(models.Model):
     name = models.CharField(max_length=150)
     slug = models.SlugField(unique=True)
@@ -185,10 +214,24 @@ class Collection(models.Model):
         return self.name
 
 
+def product_sku_default():return 'PRD-'+uuid.uuid4().hex[:12].upper()
+
+def variant_sku_default():return 'VAR-'+uuid.uuid4().hex[:12].upper()
+
+
 class CatalogRecord(models.Model):
     """Validate writes from admin, imports and application code alike."""
     class Meta:
         abstract = True
+
+    def clean(self):
+        super().clean()
+        if hasattr(self,'sku'):
+            self.sku=(self.sku or '').strip()
+            for model in [Product,ProductVariant]:
+                matches=model.objects.filter(sku__iexact=self.sku)
+                if model is type(self) and self.pk:matches=matches.exclude(pk=self.pk)
+                if self.sku and matches.exists():raise ValidationError({'sku':'This SKU is already used by another product or variant.'})
 
     @classmethod
     def from_db(cls, db, field_names, values):
@@ -202,7 +245,12 @@ class CatalogRecord(models.Model):
         if 'stock_quantity' in self.__dict__:
             self._loaded_stock = self.stock_quantity
 
+    @transaction.atomic
     def save(self, *args, **kwargs):
+        if hasattr(self,'sku'):
+            self.sku=(self.sku or '').strip()
+            from django.db import connection
+            with connection.cursor() as cursor:cursor.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',[self.sku.casefold()])
         self.full_clean()
         result = super().save(*args, **kwargs)
         if hasattr(self, 'stock_quantity'):
@@ -301,14 +349,15 @@ class Pricing(CatalogRecord):
 class Product(Pricing):
     name = models.CharField(max_length=200)
     slug = models.SlugField(unique=True)
-    collection = models.ForeignKey(Collection, on_delete=models.PROTECT, related_name="products")
+    category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="products")
+    collections = models.ManyToManyField(Collection,blank=True,related_name="products")
     subtitle = models.CharField(max_length=200, blank=True)
     description = models.TextField(blank=True)
     currency = models.CharField(max_length=3, default="BDT", help_text="ISO currency code, e.g. BDT.")
     image = WebPImageField(upload_to="products/", blank=True)
     image_alt = models.CharField(max_length=250, blank=True)
     badge = models.CharField(max_length=50, blank=True)
-    sku = models.CharField('SKU', max_length=80, unique=True, null=True, blank=True)
+    sku = models.CharField('SKU', max_length=80, unique=True,default=product_sku_default)
     tags = models.ManyToManyField(ProductTag, blank=True, related_name='products')
     material = models.CharField(max_length=150, blank=True)
     gemstone = models.CharField(max_length=150, blank=True)
@@ -328,7 +377,7 @@ class Product(Pricing):
         return self.name
 
     def clean(self):
-        self.sku = self.sku.strip() if self.sku and self.sku.strip() else None
+        self.sku = self.sku.strip() if self.sku else ''
         self.currency = self.currency.strip().upper()
         super().clean()
         if len(self.currency) != 3 or not self.currency.isascii() or not self.currency.isalpha():
@@ -352,7 +401,7 @@ class Product(Pricing):
 class ProductVariant(Pricing):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='variants')
     name = models.CharField(max_length=150, help_text='Customer-facing name, e.g. Rose gold / Size 7.')
-    sku = models.CharField('SKU', max_length=80, unique=True)
+    sku = models.CharField('SKU', max_length=80, unique=True,default=variant_sku_default)
     size = models.CharField(max_length=80, blank=True)
     color = models.CharField('Colour / finish', max_length=100, blank=True)
     material = models.CharField(max_length=150, blank=True)
@@ -440,6 +489,8 @@ class ProductImage(CatalogRecord):
 class Cart(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='shopping_cart')
+    checkout_draft = models.JSONField(default=dict,blank=True,editable=False)
+    draft_expires_at = models.DateTimeField(null=True,blank=True,editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -465,6 +516,32 @@ class CartItem(models.Model):
         return f'{self.product} / {self.quantity}'
 
 
+class City(models.Model):
+    name=models.CharField(max_length=120,unique=True)
+    is_active=models.BooleanField(default=True)
+    class Meta:
+        ordering=('name',)
+        verbose_name_plural='Cities'
+    def __str__(self):return self.name
+
+
+class Area(models.Model):
+    city=models.ForeignKey(City,on_delete=models.PROTECT,related_name='areas')
+    name=models.CharField(max_length=150)
+    is_active=models.BooleanField(default=True)
+    class Meta:
+        ordering=('city__name','name')
+        constraints=[models.UniqueConstraint(fields=['city','name'],name='area_name_per_city')]
+    def clean(self):
+        super().clean()
+        if self.pk and self.order_set.exclude(city_record_id=self.city_id).exists():
+            raise ValidationError({'city':'An area used by an order cannot be moved to another city.'})
+    def save(self,*args,**kwargs):
+        self.full_clean()
+        return super().save(*args,**kwargs)
+    def __str__(self):return f'{self.city} / {self.name}' 
+
+
 class Order(models.Model):
     class Status(models.TextChoices):
         PLACED = 'placed', 'Placed'
@@ -485,6 +562,8 @@ class Order(models.Model):
     email = models.EmailField(blank=True)
     phone = models.CharField(max_length=40, blank=True)
     address = models.TextField(max_length=1000, blank=True)
+    city_record=models.ForeignKey(City,null=True,blank=True,on_delete=models.PROTECT)
+    area_record=models.ForeignKey(Area,null=True,blank=True,on_delete=models.PROTECT)
     area = models.CharField(max_length=150, blank=True)
     city = models.CharField(max_length=120, blank=True)
     postal_code = models.CharField(max_length=30, blank=True)
@@ -508,6 +587,7 @@ class Order(models.Model):
 
     def clean(self):
         super().clean()
+        if self.area_record_id and self.area_record.city_id!=self.city_record_id:raise ValidationError({'area_record':'Area must belong to the selected city.'})
         if not self._state.adding:
             previous=type(self).objects.filter(pk=self.pk).values_list('status',flat=True).first()
             allowed={'placed':{'processing','cancelled'},'processing':{'shipped','cancelled'},'shipped':{'completed'},'completed':set(),'cancelled':set()}

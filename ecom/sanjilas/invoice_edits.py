@@ -111,6 +111,9 @@ def amend(request,pk,post,save=False):
         for identity in old_counts.keys()|new_counts.keys():
             delta=old_counts[identity]-new_counts[identity]
             if delta:InventoryMovement.objects.create(product_id=identity[0],variant_id=identity[1],order=order,quantity=delta,reason='adjustment',actor=request.user,note=reason)
+    if reviewed['details']['city']!=order.city or reviewed['details']['area']!=order.area:
+        from .locations import resolve
+        for name,value in resolve(reviewed['details']['city'],reviewed['details']['area'],required=False).items():setattr(order,name,value)
     for name,value in reviewed['details'].items():setattr(order,name,value)
     order.subtotal=reviewed['subtotal'];order.shipping_fee=reviewed['shipping_fee'];order.total=reviewed['total'];order.revision+=1
     order.payment_status=payments.summary(order)['payment_status']

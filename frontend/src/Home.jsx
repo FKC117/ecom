@@ -53,6 +53,7 @@ export default function Home() {
   const [search, setSearch] = useState(false)
   const [query, setQuery] = useState('')
   const [collection, setCollection] = useState(null)
+  const [category,setCategory]=useState(null)
   const [selectedId, setSelectedId] = useState(null)
 
   useEffect(() => {
@@ -98,19 +99,20 @@ export default function Home() {
     <div className="loading-content">{failed ? <><p role="alert">{bootstrap.labels?.load_error}</p><button className="retry-button" onClick={() => { setFailed(false); setAttempt(attempt + 1) }} aria-label={bootstrap.labels?.retry || '↻'}>↻</button></> : <><span className="loading-gem" aria-hidden="true"><Icon name="sparkle" /></span><p role="status">{bootstrap.labels?.loading}</p></>}</div>
   </main>
 
-  const { site, page, collections, products } = data
+  const { site, page, categories, collections, products } = data
   const selected = products.find((product) => product.id === selectedId) || null
   const l = page.labels
-  const featured = products.filter((product) => collection ? product.collection === collection : product.is_featured)
-  const results = query.trim() ? products.filter((product) => `${product.name} ${product.subtitle} ${collections.find((item) => item.id === product.collection)?.name || ''}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) : products
+  const featured = products.filter((product)=>(!category||product.category===category)&&(!collection||product.collections.includes(collection))&&((category||collection)||product.is_featured))
+  const results = query.trim() ? products.filter((product) => `${product.name} ${product.subtitle} ${categories.find((item) => item.id === product.category)?.name || ''} ${collections.filter((item)=>product.collections.includes(item.id)).map((item)=>item.name).join(' ')} ${product.sku||''}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) : products
   const logo = mode === 'dark' && site.logo_dark ? site.logo_dark : site.logo
-  const chooseCollection = (id) => {
-    setCollection(id)
+  const chooseCategory = (id) => {
+    setCategory(id)
+    setCollection(null)
     setMenu(false)
     document.getElementById('jewellery')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
   const navigation = [
-    ['/login/', l.nav_login], ['#collections', l.nav_collections], ['#jewellery', l.nav_featured], ['#story', l.nav_story],
+    ['/login/', l.nav_login], ['#collections', l.nav_categories], ['#jewellery', l.nav_featured], ['#story', l.nav_story],
   ]
 
   return <>
@@ -153,7 +155,7 @@ export default function Home() {
       <section className="section collections-section" id="collections" aria-labelledby="collections-title">
         <div className="section-heading"><p className="eyebrow">{page.collections_eyebrow}</p><h2 id="collections-title">{page.collections_title}</h2></div>
         <div className="collection-grid">
-          {collections.map((item, index) => <button className="collection-card" key={item.id} onClick={() => chooseCollection(item.id)}>
+          {categories.map((item, index) => <button className="collection-card" key={item.id} onClick={() => chooseCategory(item.id)}>
             <div className="collection-image">{item.image && <ResponsiveImage src={item.image} media={item.image_media} sizes="(max-width: 760px) 50vw, 25vw" alt={item.image_alt || item.name} loading="lazy" />}<span className="collection-number">{String(index + 1).padStart(2, '0')}</span></div>
             <div className="collection-caption"><div><h3>{item.name}</h3><p>{item.description}</p></div><span className="circle-arrow"><Icon name="arrow" /></span></div>
           </button>)}
@@ -162,10 +164,11 @@ export default function Home() {
 
       <section className="section featured-section" id="jewellery" aria-labelledby="featured-title">
         <div className="featured-heading"><div><p className="eyebrow">{page.featured_eyebrow}</p><h2 id="featured-title">{page.featured_title}</h2></div><p>{page.featured_description}</p></div>
-        <div className="collection-filters" aria-label={l.nav_collections}>
-          <button className={collection === null ? 'active' : ''} aria-pressed={collection === null} onClick={() => setCollection(null)}>{l.all_collections}</button>
-          {collections.map((item) => <button key={item.id} className={collection === item.id ? 'active' : ''} aria-pressed={collection === item.id} onClick={() => setCollection(item.id)}>{item.name}</button>)}
+        <div className="collection-filters" aria-label={l.nav_categories}>
+          <button className={category === null ? 'active' : ''} aria-pressed={category === null} onClick={() => setCategory(null)}>{l.all_categories}</button>
+          {categories.map((item) => <button key={item.id} className={category === item.id ? 'active' : ''} aria-pressed={category === item.id} onClick={() => setCategory(item.id)}>{item.name}</button>)}
         </div>
+        {collections.length>0&&<div className="collection-filters" aria-label={l.nav_collections}><button className={collection===null?'active':''} aria-pressed={collection===null} onClick={()=>setCollection(null)}>{l.all_collections}</button>{collections.map((item)=><button key={item.id} className={collection===item.id?'active':''} aria-pressed={collection===item.id} onClick={()=>setCollection(item.id)}>{item.name}</button>)}</div>}
         <div className="product-grid">
           {featured.map((product) => <button className="product-card" key={product.id} onClick={() => setSelectedId(product.id)} aria-label={`${l.view_piece}: ${product.name}`}>
             <div className="product-image">{product.image && <ResponsiveImage src={product.image} media={product.image_media} sizes="(max-width: 760px) 50vw, 25vw" alt={product.image_alt || product.name} loading="lazy" />}{product.badge && <span className="product-badge">{product.badge}</span>}<span className="product-discover"><Icon name="arrow" /></span></div>
@@ -200,7 +203,7 @@ export default function Home() {
       <div className="search-results">{results.map((product) => <button key={product.id} onClick={() => { setSearch(false); setSelectedId(product.id) }}><ResponsiveImage src={product.image} media={product.image_media} sizes="65px" alt={product.image_alt || product.name} /><span><strong>{product.name}</strong><small>{priceText(product, l)}</small></span><Icon name="arrow" /></button>)}{!results.length && <p>{l.search_empty}</p>}</div>
     </Modal>
     <Modal open={!!selected} onClose={() => setSelectedId(null)} label={selected?.name} closeLabel={l.close_details} className="product-dialog">
-      {selected && <ProductDetail key={selected.id} product={selected} collections={collections} site={site} labels={l} onAdd={async(variant,quantity)=>{
+      {selected && <ProductDetail key={selected.id} product={selected} categories={categories} site={site} labels={l} onAdd={async(variant,quantity)=>{
         if(!shop.cart?.authenticated){setSelectedId(null);setBagOpen(true);return}
         const existing=shop.cart.items.find((item)=>item.product_id===selected.id&&item.variant_id===(variant?.id||null)&&!item.expired)
         try {await shop.mutate('cart/items/',{product_id:selected.id,variant_id:variant?.id,quantity:(existing?.quantity||0)+quantity});setSelectedId(null);setBagOpen(true)}

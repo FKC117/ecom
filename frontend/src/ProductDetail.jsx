@@ -7,7 +7,7 @@ export function Price({ item, labels, range = false }) {
   return <span className="catalog-price">{range && item.has_price_range && <span>{labels.from_price} </span>}{item.has_discount && <del aria-label={labels.regular_price}>{priceText(item, labels, 'regular_price')}</del>}<strong aria-label={labels.sale_price}>{priceText(item, labels)}</strong></span>
 }
 
-export default function ProductDetail({ product, collections, site, labels: l, onAdd }) {
+export default function ProductDetail({ product, categories, site, labels: l, onAdd }) {
   const [quantity,setQuantity]=useState(1)
   const [busy,setBusy]=useState(false)
   const [error,setError]=useState('')
@@ -27,7 +27,7 @@ export default function ProductDetail({ product, collections, site, labels: l, o
   const specifications = [['material', variant?.material || product.material], ['gemstone', variant?.gemstone || product.gemstone], ['size', variant?.size], ['color', variant?.color], ['sku', item.sku]].filter(([,value]) => value)
   return <div className="product-detail">
     <div className="catalog-gallery"><div className="detail-image">{image && <ResponsiveImage src={image.image} media={image.image_media} sizes="(max-width: 760px) 100vw, 50vw" alt={image.image_alt || product.name} />}</div>{gallery.length > 1 && <div className="catalog-thumbnails" role="group" aria-label={l.gallery}>{gallery.map((entry) => <button key={entry.id} type="button" aria-pressed={image?.id === entry.id} onClick={() => setGalleryId(entry.id)}><ResponsiveImage src={entry.image} media={entry.image_media} sizes="72px" alt={entry.image_alt || product.name} /></button>)}</div>}</div>
-    <div className="detail-copy"><p className="eyebrow">{collections.find((entry) => entry.id === product.collection)?.name}</p><h2>{product.name}</h2><p className="detail-subtitle">{product.subtitle}</p>
+    <div className="detail-copy"><p className="eyebrow">{categories.find((entry) => entry.id === product.category)?.name}</p><h2>{product.name}</h2><p className="detail-subtitle">{product.subtitle}</p>
       {variants.length > 0 && <label className="catalog-variant-select">{l.variants}<select value={variant?.id || ''} onChange={(event) => {setVariantId(Number(event.target.value));setGalleryId(null)}}>{variants.map((entry) => <option key={entry.id} value={entry.id}>{entry.name} · {priceText(entry,l)} · {l[entry.availability]}</option>)}</select></label>}
       <p className="detail-price" aria-live="polite"><Price item={item} labels={l} /></p><p className={`catalog-availability ${item.availability === 'sold_out' ? 'is-sold-out' : ''}`} role="status">{l[item.availability]}</p>
       <form className="catalog-add" onSubmit={async(event)=>{event.preventDefault();setBusy(true);setError('');try{await onAdd(variant,Number(quantity))}catch(failure){setError(failure.message)}finally{setBusy(false)}}}><label>{l.quantity}<input type="number" min="1" max="999" step="1" value={quantity} onChange={(event)=>setQuantity(event.target.value)} required disabled={busy||!item.can_purchase} /></label><button className="button button-primary" aria-describedby={!item.can_purchase?`purchase-unavailable-${product.id}`:undefined} disabled={busy||!item.can_purchase}>{busy?l.adding_to_cart:l.add_to_cart}</button>{error&&<p className="control-error" role="alert">{error}</p>}</form>

@@ -60,7 +60,7 @@ def cart_data(user,zone="inside"):
     cart = Cart.objects.filter(user=user).first()
     rows=[]
     if cart:
-        for line in cart.items.select_related('product__collection','variant'):
+        for line in cart.items.select_related('product__category','variant'):
             product,variant=line.product,line.variant
             item=variant or product
             row=commerce.snapshot(line,product,variant)
@@ -69,7 +69,11 @@ def cart_data(user,zone="inside"):
             rows.append(row)
     active=[row for row in rows if not row['expired']]
     subtotal=sum((row['line_total'] or 0 for row in active),0)
-    return {'quote':commerce.checkout_quote(rows,site.shop_currency,shipping),'items':rows,'subtotal':subtotal,'shipping_fee':shipping if active else 0,'delivery_zone':zone,'delivery_rates':rates(site),
+    expiry=min((row['expires_at'] for row in active),default=None)
+    draft=cart.checkout_draft if cart and cart.draft_expires_at and cart.draft_expires_at>timezone.now() and expiry and cart.draft_expires_at.isoformat()==expiry else {}
+    if cart and not draft and (cart.checkout_draft or cart.draft_expires_at):
+        Cart.objects.filter(pk=cart.pk,draft_expires_at__lte=timezone.now()).update(checkout_draft={},draft_expires_at=None)
+    return {'cart_id':str(cart.pk) if cart else None,'draft':draft,'draft_expiry':expiry,'quote':commerce.checkout_quote(rows,site.shop_currency,shipping),'items':rows,'subtotal':subtotal,'shipping_fee':shipping if active else 0,'delivery_zone':zone,'delivery_rates':rates(site),
             'total':subtotal+shipping if active else 0,'currency':site.shop_currency,
             'dummy_enabled':site.dummy_payments_enabled,'pay_now_enabled':site.dummy_payments_enabled,'cod_enabled':site.cash_on_delivery_enabled,'advance_enabled':site.dummy_payments_enabled or site.delivery_advance_enabled and bool(site.delivery_advance_instructions.strip()) and bool([m for m in site.delivery_advance_methods if m in ['bkash','nagad','bank']]),'advance_instructions':site.delivery_advance_instructions,'advance_methods':[m for m in site.delivery_advance_methods if m in ['bkash','nagad','bank']],'server_time':timezone.now().isoformat()}
 
@@ -110,6 +114,14 @@ class CheckoutForm(forms.Form):
     advance_reference=forms.CharField(max_length=150,required=False)
     advance_channel=forms.ChoiceField(choices=[('bkash','bKash'),('nagad','Nagad'),('bank','Bank transfer')],required=False)
     delivery_zone=forms.ChoiceField(choices=[("inside","Inside Dhaka"),("outside","Outside Dhaka")],required=False)
+
+
+    def clean(self):
+        data=super().clean()
+        if 'city' in data and 'area' in data:
+            from .locations import resolve
+            data.update(resolve(data['city'],data['area']))
+        return data
 
 
 @customer
@@ -180,3 +192,31 @@ def delivery_area(request):
     if zone not in ['inside','outside']:return fail('shop_invalid')
     request.session['delivery_zone']=zone
     return JsonResponse(cart_data(request.user,zone))
+
+
+@customer
+@require_POST
+@transaction.atomic
+def save_draft(request):
+    import json
+    from django.utils.dateparse import parse_datetime
+    from .models import City,Area
+    cart=Cart.objects.select_for_update().filter(user=request.user).first()
+    now=timezone.now()
+    expiry=cart.items.filter(expires_at__gt=now).order_by('expires_at').values_list('expires_at',flat=True).first() if cart else None
+    if not cart or not expiry or parse_datetime(request.POST.get('expiry',''))!=expiry:return fail('shop_expired',409)
+    try:data=json.loads(request.POST.get('draft','{}'))
+    except (ValueError,TypeError):return fail('shop_invalid')
+    if not isinstance(data,dict):return fail('shop_invalid')
+    clean={}
+    for name,limit in [('customer_name',150),('email',254),('phone',40),('address',1000),('postal_code',30),('notes',1000),('advance_reference',150),('advance_channel',10)]:
+        value=data.get(name,'')
+        if not isinstance(value,str) or len(value)>limit:return fail('shop_invalid')
+        clean[name]=value
+    city_value=data.get('city');area_value=data.get('area')
+    city=City.objects.filter(pk=city_value.get('id'),is_active=True).first() if isinstance(city_value,dict) and isinstance(city_value.get('id'),int) else None
+    area=Area.objects.filter(pk=area_value.get('id'),city=city,is_active=True).first() if city and isinstance(area_value,dict) and isinstance(area_value.get('id'),int) else None
+    clean.update(city={'id':city.pk,'name':city.name} if city else None,area={'id':area.pk,'name':area.name} if area else None,
+                 payment_method=data.get('payment_method') if data.get('payment_method') in ['cod','delivery_advance','pay_now'] else 'cod',checkout_open=data.get('checkout_open') is True)
+    cart.checkout_draft=clean;cart.draft_expires_at=expiry;cart.save(update_fields=['checkout_draft','draft_expires_at'])
+    return JsonResponse({'saved':True})

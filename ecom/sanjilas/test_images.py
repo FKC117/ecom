@@ -13,7 +13,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from .image_fields import ImageInput, WebPImageFormField
 from .images import image_metadata, parse_edits, prepare_image
-from .models import Collection, Product, SiteSettings
+from .models import Category, Product, SiteSettings
 
 
 def upload(size=(800,600), image_format='JPEG', mode='RGB', **kwargs):
@@ -89,10 +89,10 @@ class StoredImagesTests(TestCase):
         override=override_settings(MEDIA_ROOT=self.folder.name)
         override.enable();self.addCleanup(override.disable)
         self.user=get_user_model().objects.create_user('image-editor',password='Temporary-image-test1',is_staff=True)
-        self.user.user_permissions.set(Permission.objects.filter(content_type__app_label='sanjilas',codename__in=['view_collection','add_collection','change_collection','view_sitesettings','change_sitesettings']))
+        self.user.user_permissions.set(Permission.objects.filter(content_type__app_label='sanjilas',codename__in=['view_category','add_category','change_category','view_sitesettings','change_sitesettings']))
         self.client.force_login(self.user)
-        self.obj=Collection.objects.create(name='Images',slug='images',image=upload())
-        self.root='/api/control/models/sanjilas/collection/'
+        self.obj=Category.objects.create(name='Images',slug='images',image=upload())
+        self.root='/api/control/models/sanjilas/category/'
 
     def test_model_save_generates_only_webp_and_metadata(self):
         self.assertTrue(self.obj.image.name.endswith('.webp'))
@@ -104,7 +104,7 @@ class StoredImagesTests(TestCase):
         self.assertEqual((metadata['width'],metadata['height']),(800,600))
         self.assertIn('320w',metadata['srcset'])
         home=self.client.get('/api/home/').json()
-        self.assertEqual(home['collections'][0]['image_media']['width'],800)
+        self.assertEqual(home['categories'][0]['image_media']['width'],800)
 
     def test_preview_is_permission_checked_and_does_not_write_files(self):
         before=set(Path(self.folder.name).rglob('*.*'))
@@ -115,7 +115,7 @@ class StoredImagesTests(TestCase):
         with Image.open(io.BytesIO(response.content)) as image:
             self.assertEqual(image.size,(600,800))
         self.assertEqual(before,set(Path(self.folder.name).rglob('*.*')))
-        self.user.user_permissions.set(Permission.objects.filter(content_type__app_label='sanjilas',codename='view_collection'))
+        self.user.user_permissions.set(Permission.objects.filter(content_type__app_label='sanjilas',codename='view_category'))
         self.assertEqual(self.client.post(self.root+'image/image/',{'pk':self.obj.pk}).status_code,403)
 
     def test_save_existing_edits_creates_version_and_retains_previous_file(self):
@@ -130,10 +130,10 @@ class StoredImagesTests(TestCase):
 
     def test_saved_product_crop_replaces_all_public_image_urls(self):
         self.user.user_permissions.add(*Permission.objects.filter(content_type__app_label='sanjilas', codename__in=['view_product', 'change_product']))
-        product = Product.objects.create(name='Ring', slug='ring', collection=self.obj, image=upload((1000,667)))
+        product = Product.objects.create(name='Ring', slug='ring', category=self.obj, image=upload((1000,667)))
         old = self.client.get('/api/home/').json()['products'][0]['image_media']
         response = self.client.post(f'/api/control/models/sanjilas/product/{product.pk}/', {
-            'name': 'Ring', 'slug': 'ring', 'collection': self.obj.pk, 'currency': 'BDT',
+            'name': 'Ring', 'slug': 'ring', 'category': self.obj.pk, 'sku':product.sku, 'currency': 'BDT',
             'discount_type': 'none', 'discount_value': '0', 'stock_quantity': '0',
             'position': 0, 'is_active': 'on', 'is_featured': 'on',
             'image__edits': json.dumps({'crop': {'x': .233, 'y': .228, 'width': .503, 'height': .436}}),
@@ -169,11 +169,11 @@ class StoredImagesTests(TestCase):
 
     def test_django_admin_widget_and_processing(self):
         self.user.is_superuser=True;self.user.save()
-        response=self.client.get(f'/admin/sanjilas/collection/{self.obj.pk}/change/')
+        response=self.client.get(f'/admin/sanjilas/category/{self.obj.pk}/change/')
         self.assertEqual(response.status_code,200)
         self.assertContains(response,'image__enable_edits')
         old_name=self.obj.image.name
-        response=self.client.post(f'/admin/sanjilas/collection/{self.obj.pk}/change/',{'name':'Images','slug':'images','position':0,'is_active':'on','image__enable_edits':'on','image__rotate':'90','_save':'Save'})
+        response=self.client.post(f'/admin/sanjilas/category/{self.obj.pk}/change/',{'name':'Images','slug':'images','position':0,'is_active':'on','image__enable_edits':'on','image__rotate':'90','_save':'Save'})
         self.assertEqual(response.status_code,302,response.content)
         self.obj.refresh_from_db()
         self.assertNotEqual(old_name,self.obj.image.name)

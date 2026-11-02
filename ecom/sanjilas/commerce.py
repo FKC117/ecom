@@ -51,7 +51,7 @@ def target(product, variant):
 
 
 def check_sale(product, item, quantity, cart):
-    if not product.is_active or not product.collection.is_active or item.discounted_price is None:
+    if not product.is_active or not product.category.is_active or item.discounted_price is None:
         raise ShopError('shop_unavailable')
     if not item.track_stock:
         raise ShopError('shop_stock_unconfigured')
@@ -79,11 +79,14 @@ def set_item(user, product_id, variant_id, quantity):
     if quantity == 0:
         if existing:
             existing.delete()
+        if not cart.items.exists():
+            cart.checkout_draft={};cart.draft_expires_at=None;cart.save(update_fields=['checkout_draft','draft_expires_at'])
         return cart
     item = target(product,variant)
     check_sale(product,item,quantity,cart)
     now = timezone.now()
-    expiry = existing.expires_at if existing and existing.expires_at > now else now + timedelta(minutes=SiteSettings.load().cart_reservation_minutes)
+    active_expiry=cart.items.filter(expires_at__gt=now).order_by('expires_at').values_list('expires_at',flat=True).first()
+    expiry=active_expiry or now+timedelta(minutes=SiteSettings.load().cart_reservation_minutes)
     CartItem.objects.update_or_create(cart=cart,product=product,variant=variant,defaults={'quantity':quantity,'expires_at':expiry})
     return cart
 
@@ -169,6 +172,7 @@ def place_order(user, key, details, quote=None):
         from .shop import labels
         payments.append(SimpleNamespace(user=user),order,OrderPayment(kind='payment',amount=amount,method='dummy',is_simulated=True,reference=order.advance_reference,notes=labels()['dummy_payment_note']),uuid.uuid5(key,'dummy-payment'))
     cart.items.all().delete()
+    cart.checkout_draft={};cart.draft_expires_at=None;cart.save(update_fields=['checkout_draft','draft_expires_at'])
     return order
 
 

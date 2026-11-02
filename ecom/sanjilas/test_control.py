@@ -13,11 +13,11 @@ from django.test import Client, TestCase, override_settings
 from django.urls import include, path
 from import_export.admin import ImportExportModelAdmin
 
-from .models import Collection, Product, SiteSettings
+from .models import Category, Product, SiteSettings
 
 
 ROOT = '/api/control/'
-COLLECTIONS = ROOT + 'models/sanjilas/collection/'
+COLLECTIONS = ROOT + 'models/sanjilas/category/'
 PRODUCTS = ROOT + 'models/sanjilas/product/'
 
 
@@ -27,8 +27,8 @@ class ControlTests(TestCase):
         cls.owner = get_user_model().objects.create_superuser('owner', 'owner@example.com', 'Owner-test-password1')
         cls.staff = get_user_model().objects.create_user('editor', password='Editor-test-password1', is_staff=True)
         cls.customer = get_user_model().objects.create_user('customer', password='Customer-test-password1')
-        cls.collection = Collection.objects.create(name='Rings', slug='rings')
-        cls.product = Product.objects.create(name='Ring', slug='ring', collection=cls.collection)
+        cls.category = Category.objects.create(name='Rings', slug='rings')
+        cls.product = Product.objects.create(name='Ring', slug='ring', category=cls.category)
         SiteSettings.objects.create()
 
     def setUp(self):
@@ -96,26 +96,26 @@ class ControlTests(TestCase):
         response = client.post(ROOT + 'login/', {'username':'owner','password':'Owner-test-password1'}, HTTP_X_CSRFTOKEN=token)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(client.post(COLLECTIONS+'new/', {'name':'Bad','slug':'bad'}).status_code, 403)
-        self.assertFalse(Collection.objects.filter(slug='bad').exists())
+        self.assertFalse(Category.objects.filter(slug='bad').exists())
         token = response.json()['csrf_token']
         self.assertEqual(client.post(COLLECTIONS+'new/', {'name':'Good','slug':'good','position':0,'is_active':'on'}, HTTP_X_CSRFTOKEN=token).status_code, 200)
 
     def test_group_permissions_control_directory_and_readonly_forms(self):
-        self.grant('view_collection')
+        self.grant('view_category')
         data = self.client.get(ROOT + 'session/').json()
-        self.assertEqual([item['key'] for item in data['models']], ['sanjilas.collection'])
+        self.assertEqual([item['key'] for item in data['models']], ['sanjilas.category'])
         self.assertEqual(data['user']['roles'], ['Content team'])
-        response = self.client.get(COLLECTIONS+f'{self.collection.pk}/')
+        response = self.client.get(COLLECTIONS+f'{self.category.pk}/')
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()['permissions']['change'])
         self.assertIn('name', [field['name'] for field in response.json()['fields']])
-        self.assertEqual(self.client.post(COLLECTIONS+f'{self.collection.pk}/', {'name':'Hacked'}).status_code, 403)
+        self.assertEqual(self.client.post(COLLECTIONS+f'{self.category.pk}/', {'name':'Hacked'}).status_code, 403)
         self.assertEqual(self.client.get(COLLECTIONS+'new/').status_code, 403)
-        self.assertEqual(self.client.post(COLLECTIONS+f'{self.collection.pk}/delete/', {'confirm':'yes'}).status_code, 403)
+        self.assertEqual(self.client.post(COLLECTIONS+f'{self.category.pk}/delete/', {'confirm':'yes'}).status_code, 403)
         self.assertEqual(self.client.get(PRODUCTS).status_code, 403)
 
     def test_add_only_access(self):
-        self.grant('add_collection')
+        self.grant('add_category')
         model = self.client.get(ROOT+'session/').json()['models'][0]
         self.assertIsNone(model['count'])
         self.assertFalse(model['permissions']['view'])
@@ -125,23 +125,23 @@ class ControlTests(TestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_crud_validation_and_audit_logs(self):
-        self.grant('view_collection','add_collection','change_collection','delete_collection')
+        self.grant('view_category','add_category','change_category','delete_category')
         self.assertEqual(self.client.post(COLLECTIONS+'new/', {'name':'Missing slug'}).status_code, 400)
         response = self.client.post(COLLECTIONS+'new/', {'name':'New','slug':'new','position':1,'is_active':'on'})
         self.assertEqual(response.status_code, 200)
         pk = response.json()['id']
         self.assertEqual(self.client.post(COLLECTIONS+f'{pk}/', {'name':'Updated','slug':'new','position':2,'is_active':'on'}).status_code, 200)
-        self.assertEqual(Collection.objects.get(pk=pk).name, 'Updated')
+        self.assertEqual(Category.objects.get(pk=pk).name, 'Updated')
         self.assertFalse(self.client.get(COLLECTIONS+f'{pk}/delete/').json()['blocked'])
         self.assertEqual(self.client.post(COLLECTIONS+f'{pk}/delete/').status_code, 400)
         self.assertEqual(self.client.post(COLLECTIONS+f'{pk}/delete/', {'confirm':'yes'}).status_code, 200)
-        self.assertFalse(Collection.objects.filter(pk=pk).exists())
+        self.assertFalse(Category.objects.filter(pk=pk).exists())
         self.assertEqual(set(LogEntry.objects.filter(user=self.staff).values_list('action_flag',flat=True)), {ADDITION,CHANGE,DELETION})
 
     def test_protected_relationships_and_singleton_rules(self):
         self.client.force_login(self.owner)
-        self.assertTrue(self.client.get(COLLECTIONS+f'{self.collection.pk}/delete/').json()['blocked'])
-        self.assertEqual(self.client.post(COLLECTIONS+f'{self.collection.pk}/delete/', {'confirm':'yes'}).status_code, 409)
+        self.assertTrue(self.client.get(COLLECTIONS+f'{self.category.pk}/delete/').json()['blocked'])
+        self.assertEqual(self.client.post(COLLECTIONS+f'{self.category.pk}/delete/', {'confirm':'yes'}).status_code, 409)
         root = ROOT+'models/sanjilas/sitesettings/'
         self.assertEqual(self.client.get(root+'new/').status_code, 403)
         self.assertEqual(self.client.post(root+'1/delete/', {'confirm':'yes'}).status_code, 403)
@@ -154,20 +154,20 @@ class ControlTests(TestCase):
                 return super().get_queryset(request).filter(pk=self.allowed_pk)
             def has_change_permission(self, request, obj=None):
                 return False if obj is not None else True
-        scoped = ScopedAdmin(Collection, admin.site)
-        scoped.allowed_pk = self.collection.pk
-        other = Collection.objects.create(name='Other', slug='other')
-        with patch.dict(admin.site._registry, {Collection: scoped}):
+        scoped = ScopedAdmin(Category, admin.site)
+        scoped.allowed_pk = self.category.pk
+        other = Category.objects.create(name='Other', slug='other')
+        with patch.dict(admin.site._registry, {Category: scoped}):
             response = self.client.get(COLLECTIONS)
             self.assertEqual(len(response.json()['rows']), 1)
             self.assertEqual(self.client.get(COLLECTIONS+f'{other.pk}/').status_code, 404)
-            self.assertEqual(self.client.post(COLLECTIONS+f'{self.collection.pk}/', {'slug':'changed'}).status_code, 403)
-            data = self.client.get(COLLECTIONS+f'{self.collection.pk}/').json()
+            self.assertEqual(self.client.post(COLLECTIONS+f'{self.category.pk}/', {'slug':'changed'}).status_code, 403)
+            data = self.client.get(COLLECTIONS+f'{self.category.pk}/').json()
             self.assertIn('name', [item['name'] for item in data['readonly']])
 
     def test_export_permissions_scope_and_formula_escaping(self):
-        self.grant('view_collection')
-        Collection.objects.create(name='=HYPERLINK("bad")',slug='formula')
+        self.grant('view_category')
+        Category.objects.create(name='=HYPERLINK("bad")',slug='formula')
         response = self.client.get(COLLECTIONS+'export/')
         self.assertEqual(response.status_code, 200)
         self.assertIn("'=HYPERLINK", response.content.decode())
@@ -202,9 +202,9 @@ class ControlTests(TestCase):
         self.client.force_login(self.owner)
         response = self.client.get(PRODUCTS+'new/')
         self.assertEqual(response.status_code, 200)
-        relation = next(field for field in response.json()['fields'] if field['name']=='collection')
-        self.assertEqual(relation['choices'][0]['value'], str(self.collection.pk))
-        self.assertEqual(self.client.get(PRODUCTS+'options/collection/').status_code, 200)
+        relation = next(field for field in response.json()['fields'] if field['name']=='category')
+        self.assertEqual(relation['choices'][0]['value'], str(self.category.pk))
+        self.assertEqual(self.client.get(PRODUCTS+'options/category/').status_code, 200)
         self.assertEqual(self.client.get(COLLECTIONS+'?q=rings').json()['count'], 1)
         self.assertEqual(self.client.get(ROOT+'models/unknown/unknown/').status_code, 404)
 
@@ -217,7 +217,7 @@ class ControlTests(TestCase):
         self.assertEqual(self.client.post(ROOT+'login/', {'username':'bad','password':'bad'}).status_code, 429)
 
     def test_image_upload_and_clear_use_the_django_form(self):
-        self.grant('view_collection','add_collection','change_collection')
+        self.grant('view_category','add_category','change_category')
         buffer = io.BytesIO()
         Image.new('RGB',(8,8),'white').save(buffer,format='PNG')
         image = SimpleUploadedFile('test-image.png', buffer.getvalue(), content_type='image/png')
@@ -229,7 +229,7 @@ class ControlTests(TestCase):
             self.assertTrue(next(field for field in schema['fields'] if field['name']=='image')['file_url'])
             response = self.client.post(COLLECTIONS+f'{pk}/', {'name':'Images','slug':'images','position':0,'is_active':'on','image-clear':'on'})
             self.assertEqual(response.status_code,200,response.content)
-            self.assertFalse(Collection.objects.get(pk=pk).image)
+            self.assertFalse(Category.objects.get(pk=pk).image)
 
     def test_registration_automatically_exposes_a_new_control(self):
         self.client.force_login(self.owner)
@@ -245,8 +245,8 @@ class ControlTests(TestCase):
             admin.site.unregister(Permission)
 
     def test_revoked_role_permissions_take_effect_on_next_request(self):
-        self.grant('view_collection','change_collection')
+        self.grant('view_category','change_category')
         self.assertEqual(self.client.get(COLLECTIONS).status_code,200)
         self.staff.groups.clear()
         self.assertEqual(self.client.get(COLLECTIONS).status_code,403)
-        self.assertEqual(self.client.post(COLLECTIONS+f'{self.collection.pk}/', {'name':'Changed'}).status_code,403)
+        self.assertEqual(self.client.post(COLLECTIONS+f'{self.category.pk}/', {'name':'Changed'}).status_code,403)

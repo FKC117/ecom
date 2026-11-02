@@ -8,15 +8,40 @@ from django.test import TestCase
 from import_export.admin import ImportExportModelAdmin
 from tablib import Dataset
 
-from .models import Collection, Product, ProductVariant, ProductTag, ProductFeature, ProductImage
+from .models import Category, Product, ProductVariant, ProductTag, ProductFeature, ProductImage
 
 
 class CatalogTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.collection = Collection.objects.create(name='Rings', slug='rings')
-        cls.product = Product.objects.create(name='Gold ring', slug='gold-ring', collection=cls.collection, price='1000.00')
+        cls.category = Category.objects.create(name='Rings', slug='rings')
+        cls.product = Product.objects.create(name='Gold ring', slug='gold-ring', category=cls.category, price='1000.00')
         cls.owner = get_user_model().objects.create_superuser('catalog-owner', password='Catalog-test-2026')
+
+    def test_product_sku_is_generated_required_and_unique_across_variants(self):
+        self.assertTrue(self.product.sku.startswith('PRD-'))
+        with self.assertRaises(ValidationError):
+            ProductVariant.objects.create(product=self.product,name='Duplicate parent code',sku=self.product.sku.lower())
+        variant=self.variant()
+        with self.assertRaises(ValidationError):
+            Product.objects.create(name='Duplicate variant code',slug='duplicate-code',category=self.category,sku=variant.sku.lower())
+        self.product.sku='   '
+        with self.assertRaises(ValidationError):self.product.save()
+
+    def test_collections_are_optional_many_to_many_and_separate_from_category(self):
+        from .models import Collection
+        bridal=Collection.objects.create(name='Bridal Edit',slug='bridal')
+        everyday=Collection.objects.create(name='Everyday Essentials',slug='everyday')
+        self.product.collections.add(bridal,everyday)
+        data=self.client.get('/api/home/').json()
+        row=next(row for row in data['products'] if row['id']==self.product.pk)
+        self.assertEqual(row['category'],self.category.pk)
+        self.assertEqual(set(row['collections']),{bridal.pk,everyday.pk})
+        self.assertEqual([row['name'] for row in data['categories']],['Rings'])
+        bridal.is_active=False;bridal.save()
+        data=self.client.get('/api/home/').json()
+        self.assertEqual(len(data['products']),1)
+        self.assertEqual(data['products'][0]['collections'],[everyday.pk])
 
     def variant(self, **values):
         return ProductVariant.objects.create(product=self.product, name='Gold / 7', sku='RG-7', **values)
@@ -35,7 +60,7 @@ class CatalogTests(TestCase):
     def test_invalid_discounts_rejected(self):
         for price, kind, value in [(None,'percent',10),(100,'percent',101),(100,'fixed',101),(100,'percent',0),(100,'none',1),(100,'fixed',-1)]:
             with self.subTest(price=price,kind=kind,value=value), self.assertRaises(ValidationError):
-                Product(name='Bad',slug='bad',collection=self.collection,price=price,discount_type=kind,discount_value=value).save()
+                Product(name='Bad',slug='bad',category=self.category,price=price,discount_type=kind,discount_value=value).save()
 
     def test_variant_inheritance_and_override(self):
         self.product.discount_type='percent';self.product.discount_value=10;self.product.save()
@@ -141,7 +166,7 @@ class CatalogTests(TestCase):
         self.client.force_login(self.owner)
         tag=ProductTag.objects.create(name='Wedding',slug='wedding')
         response=self.client.post('/api/control/models/sanjilas/product/new/', {
-            'name':'New ring','slug':'new-ring','collection':self.collection.pk,
+            'name':'New ring','slug':'new-ring','category':self.category.pk,'sku':'NEW-RING',
             'price':'2500','currency':'bdt','discount_type':'percent','discount_value':'10',
             'stock_quantity':0,'position':0,'is_active':'on','tags':[tag.pk],
         })

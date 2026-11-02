@@ -2,7 +2,7 @@ import json,uuid
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
-from .models import Product,ProductVariant,Collection,Order,InvoiceRevision,InventoryMovement,SiteSettings
+from .models import Product,ProductVariant,Category,Order,InvoiceRevision,InventoryMovement,SiteSettings
 from .commerce import set_item,place_order,transition_order
 
 ROOT='/api/control/invoices/'
@@ -11,8 +11,8 @@ class InvoiceEditTests(TestCase):
     def setUp(self):
         self.owner=get_user_model().objects.create_superuser('edit-owner')
         self.customer=get_user_model().objects.create_user('edit-customer')
-        collection=Collection.objects.create(name='Rings',slug='rings')
-        self.product=Product.objects.create(name='Ring',slug='ring',collection=collection,price=100,stock_quantity=5)
+        category=Category.objects.create(name='Rings',slug='rings')
+        self.product=Product.objects.create(name='Ring',slug='ring',category=category,price=100,stock_quantity=5)
         SiteSettings.objects.create()
         set_item(self.customer,self.product.pk,None,1)
         self.order=place_order(self.customer,uuid.uuid4(),{'customer_name':'Customer','email':'preview@example.com','phone':'01000000000','address':'Address','city':'Dhaka','postal_code':'','notes':''})
@@ -89,7 +89,7 @@ class InvoiceEditTests(TestCase):
         self.assertEqual(data['items'][0]['discount'],'0.00')
 
     def test_switching_to_a_variant_returns_old_stock_and_deducts_new_stock(self):
-        parent=Product.objects.create(name='Variant ring',slug='variant-ring',collection=self.product.collection,price=200)
+        parent=Product.objects.create(name='Variant ring',slug='variant-ring',category=self.product.category,price=200)
         variant=ProductVariant.objects.create(product=parent,name='Size 7',sku='V-7',stock_quantity=4)
         values=self.payload()
         values['items']=json.dumps([{'model':'productvariant','id':variant.pk,'regular_price':'200','discount_type':'fixed','discount':'0','quantity':2}])

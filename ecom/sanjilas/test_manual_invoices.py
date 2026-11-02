@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.contrib.admin.models import LogEntry
 from django.test import TestCase,Client
-from .models import Product,Collection,Order,OrderItem,InventoryMovement,SiteSettings
+from .models import Product,Category,Order,OrderItem,InventoryMovement,SiteSettings
 from .commerce import set_item,transition_order
 
 ROOT='/api/control/manual-invoices/'
@@ -15,8 +15,8 @@ class ManualInvoiceTests(TestCase):
         self.owner=get_user_model().objects.create_superuser('manual-owner')
         self.customer=get_user_model().objects.create_user('manual-customer')
         self.client.force_login(self.owner)
-        collection=Collection.objects.create(name='Rings',slug='rings')
-        self.product=Product.objects.create(name='Ring',slug='ring',collection=collection,price=100,stock_quantity=3)
+        category=Category.objects.create(name='Rings',slug='rings')
+        self.product=Product.objects.create(name='Ring',slug='ring',category=category,price=100,stock_quantity=3)
         SiteSettings.objects.create()
 
     def payload(self,lines=None):
