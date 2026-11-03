@@ -376,3 +376,65 @@ Invoice delivery/return clauses are editable in Site Settings under Invoice deta
 Products now have one required Category and optional many-to-many curated Collections. The previous Rings/Necklaces/Earrings/Bracelets group table is renamed to Category without changing IDs or images; a fresh Collection directory supports cross-category edits such as Bridal or New Arrivals. Product forms expose both. Storefront browse/filter uses categories and an additional collection filter when curated collections exist. Category deactivation blocks sales; a deactivated collection only removes that curated grouping.
 
 Every product and variant has a required SKU. New forms receive a generated PRD-/VAR- code which staff may replace. Migration fills only blank product codes, while existing invoice/order SKU snapshots stay unchanged. Case-insensitive SKU uniqueness spans products and variants, serialized by a PostgreSQL advisory lock during model saves; Django admin and import-export share the same model validation.
+
+
+## Order IP and browser tracking
+
+New storefront checkouts store the server-observed IP, a keyed browser identifier, bounded user-agent and checkout timestamp. A signed HttpOnly SameSite=Lax first-party cookie identifies a browser for 90 days; clearing it creates a new identifier. It is not a physical-device fingerprint. Cart/reservation/checkout attempts record response status; repeated cart polling is sampled to one view event per browser per minute and never extends reservations. Failed checkout and CSRF attempts are retained too. No automatic fraud bans are applied by this tracking layer.
+
+Orders → View → Order source & activity requires Can view order IP and browser tracking. Event rows additionally require Commerce activity view and parent Order/Cart view permissions. Commerce activity is registered read-only with import-export and the generated React admin; staff scopes and object permissions apply. Generic Order/Cart forms hide tracking fields without the tracking permission; full exports require it. Customer order and invoice responses never include the IP, browser identifier or user-agent. Old orders and manual invoices are not assigned invented checkout metadata.
+
+Direct requests use REMOTE_ADDR. Forwarded IPs are ignored by default. For a single local Nginx proxy, configure its location with `proxy_set_header X-Forwarded-For $remote_addr;` and set `COMMERCE_TRUSTED_PROXIES=127.0.0.1/32,::1/128` only when those are the actual trusted proxy peers and direct public access to Django is blocked. For a proxy chain, configure only the genuine proxy networks; parsing walks from the trusted peer right-to-left to the first untrusted client hop. Never trust arbitrary forwarded headers or broad public networks.
+
+`python ecom/manage.py purge_commerce_tracking` removes events and clears Order/Cart tracking metadata older than COMMERCE_TRACKING_RETENTION_DAYS (default 30). Schedule this command daily in the deployment scheduler; it does not touch financial totals, inventory, customer details or invoice history. No scheduler has been installed by this change.
+# Login brute-force protection
+
+django-axes protects customer, React control-panel and Django admin authentication
+with PostgreSQL-backed failure counters. Five failures for the same username and
+client IP lock that pair for 15 minutes. Successful login clears its failures;
+requests made during lockout do not extend the deadline. Other accounts sharing
+the same IP remain usable. Client IP resolution uses `COMMERCE_TRUSTED_PROXIES`.
+
+Authorized staff can review **Access attempts**, **Access logs** and **Access
+failures** in Django admin and `/control/`. Grant the corresponding Axes view
+permissions through Django Groups. Deleting an **Access attempt** resets its
+lockout and requires the Axes delete permission; records cannot be edited or
+imported. Deleting a failure/access log alone does not unlock an account.
+An operator with local management-command access can also use
+`python manage.py axes_reset_ip_username <ip> <username>` for recovery.
+Do not confuse this login protection with checkout or cart abuse controls.
+
+# Order protection
+
+Site Settings → Order protection controls the enabled flag, duplicate window,
+checkout/reservation limits, cart unit cap and review thresholds. Defaults:
+identical phone + product/variant quantities cannot place another live order
+within 10 minutes; 10 checkout attempts and 30 reservation changes per fixed
+10-minute window; 20 units per cart. Counters persist in PostgreSQL across workers
+and include failed submissions. Account/browser limits apply to reservations;
+checkout also limits the normalized phone. Removing items remains available.
+
+Bangladesh mobile numbers are normalized across local, +880 and Bengali-digit
+formats. This checks format, not ownership. No OTP or SMS gateway is used.
+Two existing open orders for a phone, three cancellations in seven days, eight
+orders from one IP in an hour, or two other accounts ordering with the same
+browser in a day put a new order into review. IP activity alone never rejects it.
+Dummy payments do not bypass protection. Manual invoices are staff-authorized and
+do not use customer checkout rate limits or automatic assessment.
+
+In `/control/` → Orders, authorized reviewers can select **Needs review only**,
+inspect reasons and approve or reject with a mandatory reason. Grant
+`sanjilas.review_order` plus Order view/change and OrderReview view permissions
+in Django Groups. Pending reviews block processing/shipping through both admin
+interfaces. Rejecting cancels the order and restores stock once; it does not
+issue a financial refund. Review history is immutable and staff-only.
+
+**Commerce blocks** in either admin can temporarily block a phone, account ID,
+browser identifier or exact IP, with an internal reason and expiry. IP blocks
+affect shared connections; use deliberately. Block model permissions govern
+access. Clear the active checkbox to lift a block early. Existing accepted orders
+are not cancelled by adding a block. These controls reduce abuse; browser cookies
+can be cleared and signals are not proof that a customer is fraudulent.
+The existing `purge_commerce_tracking` command also deletes expired rate counters;
+schedule it during deployment. Existing order phone/item snapshots are indexed
+for duplicate checks without changing invoice values or marking old orders risky.

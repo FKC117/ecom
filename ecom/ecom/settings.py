@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 import os
+from datetime import timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -37,6 +38,7 @@ CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv(
 # Application definition
 
 INSTALLED_APPS = [
+    "axes",
     "import_export",
     "django.contrib.admin",
     "django.contrib.auth",
@@ -53,9 +55,26 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "sanjilas.tracking.CommerceTrackingMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "axes.middleware.AxesMiddleware",
 ]
+
+AUTHENTICATION_BACKENDS = [
+    'axes.backends.AxesStandaloneBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+AXES_CLIENT_IP_CALLABLE = 'sanjilas.tracking.client_ip'
+AXES_HANDLER = 'axes.handlers.database.AxesDatabaseHandler'
+AXES_FAILURE_LIMIT = 5
+AXES_COOLOFF_TIME = timedelta(minutes=15)
+AXES_LOCKOUT_PARAMETERS = [['username', 'ip_address']]
+AXES_RESET_ON_SUCCESS = True
+AXES_RESET_COOL_OFF_ON_FAILURE_DURING_LOCKOUT = False
+AXES_LOCKOUT_CALLABLE = 'sanjilas.authentication.lockout_response'
+AXES_ENABLE_ADMIN = False
+AXES_SENSITIVE_PARAMETERS = ['username', 'ip_address', 'csrfmiddlewaretoken']
 
 ROOT_URLCONF = "ecom.urls"
 
@@ -153,3 +172,7 @@ IMAGE_MAX_PIXELS = 32_000_000
 IMAGE_MAX_EDGE = 2560
 IMAGE_WEBP_QUALITY = 90
 IMAGE_WEBP_VARIANT_QUALITY = 84
+
+# Only list proxy addresses/networks that can actually connect to Django.
+COMMERCE_TRUSTED_PROXIES = [value.strip() for value in os.getenv('COMMERCE_TRUSTED_PROXIES','').split(',') if value.strip()]
+COMMERCE_TRACKING_RETENTION_DAYS = int(os.getenv('COMMERCE_TRACKING_RETENTION_DAYS','30'))

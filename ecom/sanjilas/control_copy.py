@@ -1,6 +1,10 @@
+from .protection_copy import staff_copy
+
+
 def control_labels():
     """Backend-owned copy for the React control panel."""
     return {
+        **staff_copy(),
         "invoice_variant": "Variant description", "invoice_edit_saved": "Invoice amended",
         **{'invoice_edit': 'Edit invoice', 'invoice_edit_title': 'Amend invoice', 'invoice_edit_reason': 'Reason for amendment', 'invoice_edit_save': 'Save amendment', 'invoice_edit_stock': 'This change exceeds available stock or would consume another cart reservation.', 'invoice_stale': 'This invoice changed while you were editing. Reload it before saving.', 'invoice_history': 'Edit history', 'invoice_version': 'Version', 'invoice_before': 'Before', 'invoice_after': 'After', 'invoice_catalog_discount': 'Existing catalog discount per unit', 'invoice_catalog_price': 'Current catalog selling price', 'invoice_net_unit': 'Discounted unit price', 'invoice_edit_note': 'Changes update stock by the difference only. Invoice references remain unchanged.', 'invoice_regular_subtotal': 'Subtotal before discount', 'invoice_history_reason': 'Reason', 'invoice_history_actor': 'Changed by'},
         **{'manual_discount_total': 'Total discount', 'manual_discount_type': 'Discount type', 'manual_discount_catalog': 'Use catalog discount', 'manual_discount_fixed': 'Fixed amount per unit', 'manual_discount_percent': 'Percentage', 'manual_discount_value': 'Discount value', 'manual_discount_help': 'Manual discounts replace catalog discounts and apply to the regular unit price.', 'manual_discount_invalid': 'Discount must not exceed the unit price; percentages must be between 0 and 100.', 'manual_regular_price': 'Regular unit price'},
@@ -16,7 +20,7 @@ def control_labels():
         "login_title": "Welcome back.", "login_description": "Sign in with your staff account to manage your store.",
         "username": "Username", "password": "Password", "sign_in": "Sign in", "sign_out": "Sign out",
         "invalid_login": "Please check your credentials and staff access.",
-        "login_limited": "Too many sign-in attempts. Please try again in a few minutes.",
+        "login_limited": "Too many sign-in attempts. Please try again after 15 minutes.",
         "dashboard": "Overview", "dashboard_title": "A little clarity. A lot of possibility.",
         "dashboard_description": "Your content, collections and store settings, all in one place.",
         "models": "Your workspace", "records": "Records", "access": "Access", "manage": "Manage",
@@ -143,4 +147,12 @@ def control_labels():
         'draft_save_error': 'Could not save checkout details. Please keep this page open and try again.',
         'draft_expired': 'Your cart expired. Saved checkout details have been cleared.',
         'nav_categories':'Categories','all_categories':'All categories',
+        'tracking_title': 'Order source & activity',
+        'tracking_help': 'IP and browser identifiers are review signals. A browser ID can be cleared or changed; it does not identify a physical device.',
+        'tracking_ip': 'IP address',
+        'tracking_browser': 'Browser identifier',
+        'tracking_agent': 'Browser / user-agent',
+        'tracking_time': 'Recorded at',
+        'tracking_event': 'Activity',
+        'tracking_status': 'HTTP status',
     }

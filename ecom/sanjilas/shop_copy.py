@@ -1,5 +1,9 @@
+from .protection_copy import customer_copy
+
+
 def shop_labels():
     return {
+        **customer_copy(),
         'purchase_price_missing': 'This piece is available by enquiry. Contact us for its price before ordering.',
         'not_for_sale': 'Available by enquiry',
         'cart': 'Your bag', 'cart_open': 'Open shopping bag', 'cart_close': 'Close shopping bag',
@@ -45,7 +49,7 @@ def shop_labels():
         'partial': 'Partially paid',
         'record_payment': 'Record payment',
         'record_refund': 'Record refund',
-        'received': 'Payments received',
+        'received': 'Paid amount',
         'refunded': 'Refunds issued',
         'net_paid': 'Net paid',
         'amount_due': 'Balance due',

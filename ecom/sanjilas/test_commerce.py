@@ -224,7 +224,7 @@ class CommerceTests(TestCase):
         transition_order(first.pk,'processing')
         first.refresh_from_db()
         self.assertEqual(first.reference,reference)
-        self.reserve();second=self.checkout()
+        self.reserve();second=place_order(self.user,uuid.uuid4(),{**DETAILS,'phone':'01700000002'})
         self.assertNotEqual(first.reference,second.reference)
         self.client.force_login(self.user)
         data=self.client.get('/api/shop/orders/').json()['orders']

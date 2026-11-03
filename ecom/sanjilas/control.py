@@ -3,7 +3,6 @@
 ModelAdmin owns query scope, forms, fieldsets, permissions and save/delete hooks.
 No public model serializer is used here. Custom inline/multivalue forms fail closed.
 """
-import hashlib
 import html
 import json
 from functools import wraps
@@ -12,7 +11,6 @@ from django import forms
 from django.contrib import admin
 from django.contrib.admin.utils import flatten_fieldsets, label_for_field, lookup_field
 from django.contrib.auth import authenticate, login, logout
-from django.core.cache import cache
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError, router, transaction
@@ -142,15 +140,9 @@ def session(request):
 @sensitive_post_parameters("password")
 def sign_in(request, *, customer_access=False):
     username = request.POST.get("username", "")[:254]
-    bucket = hashlib.sha256(f'{request.META.get("REMOTE_ADDR", "")}:{username.casefold()}'.encode()).hexdigest()
-    key = "control-login:" + bucket
-    if cache.get(key, 0) >= 10:
-        return api_error("login_limited", 429)
     user = authenticate(request, username=username, password=request.POST.get("password", ""))
     if user is None or not user.is_active or (not customer_access and not active_operator(user)):
-        cache.set(key, cache.get(key, 0) + 1, 300)
         return api_error("account_invalid_login" if customer_access else "invalid_login", 400)
-    cache.delete(key)
     login(request, user)
     return JsonResponse({"ok": True, "csrf_token": get_token(request)})
 

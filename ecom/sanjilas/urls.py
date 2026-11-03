@@ -5,6 +5,7 @@ from . import views, control, shop, operations, manual_invoices, invoice_edits
 
 app_name = "sanjilas"
 urlpatterns = [
+    path('control/operations/orders/<uuid:pk>/review/',operations.review_order),
     path('shop/cart/draft/',shop.save_draft),
     path('shop/locations/',locations.search),
     path('control/invoices/<uuid:pk>/edit/',invoice_edits.detail),

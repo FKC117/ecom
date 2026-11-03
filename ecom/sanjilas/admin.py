@@ -3,7 +3,7 @@ from django.contrib import admin
 from django import forms
 from django.db import models
 from import_export.admin import ImportExportModelAdmin
-from .models import SiteSettings, HomePage, Category, Collection, Product, ProductVariant, ProductTag, ProductFeature, ProductImage, Cart, CartItem, Order, OrderItem, InventoryMovement, InvoiceRevision, OrderPayment
+from .models import SiteSettings, HomePage, Category, Collection, Product, ProductVariant, ProductTag, ProductFeature, ProductImage, Cart, CartItem, Order, OrderItem, InventoryMovement, InvoiceRevision, OrderPayment, CommerceActivity
 from .resources import SiteSettingsResource, HomePageResource
 
 
@@ -18,6 +18,7 @@ class SiteSettingsAdmin(ImportExportModelAdmin):
         ("Theme and contact", {"fields": ("palette", "default_color_mode", "contact_email")}),
         ("Invoice details", {"fields": ("invoice_address", "invoice_phone", "invoice_note", "invoice_generated_note", "invoice_terms_heading", "invoice_terms")}),
         ("Checkout & reservations", {"fields": ("low_stock_threshold", "cart_reservation_minutes", "shop_currency", "delivery_inside_dhaka", "delivery_outside_dhaka", "cash_on_delivery_enabled", "dummy_payments_enabled", "delivery_advance_enabled", "delivery_advance_instructions", "delivery_advance_methods")}),
+        ("Order protection", {"fields": ("order_protection_enabled", "duplicate_order_minutes", "checkout_attempt_limit", "reservation_attempt_limit", "cart_unit_limit", "order_review_phone_limit", "order_review_ip_limit")}),
         ("React control panel text", {"fields": ("control_labels",)}),
         ("SEO", {"fields": ("meta_title", "meta_description", "meta_keywords", "robots")}),
         ("Open Graph / social sharing", {"fields": ("og_title", "og_description", "og_type", "og_image", "og_image_alt")}),
@@ -126,6 +127,23 @@ class ProductImageAdmin(ImportExportModelAdmin):
     search_fields = ('product__name', 'image_alt')
 
 
+class TrackingFieldsMixin:
+    tracking_fields={'checkout_ip','browser_key','user_agent','checkout_recorded_at','last_ip','last_activity_at'}
+    def get_search_fields(self,request):
+        fields=list(super().get_search_fields(request))
+        if request.user.has_perm('sanjilas.view_order_tracking'):
+            fields += [field.name for field in self.model._meta.fields if field.name in {'checkout_ip','last_ip','browser_key'}]
+        return fields
+    def get_fields(self,request,obj=None):
+        fields=super().get_fields(request,obj)
+        return fields if request.user.has_perm('sanjilas.view_order_tracking') else [name for name in fields if name not in self.tracking_fields]
+    def get_readonly_fields(self,request,obj=None):
+        fields=super().get_readonly_fields(request,obj)
+        return fields if request.user.has_perm('sanjilas.view_order_tracking') else [name for name in fields if name not in self.tracking_fields]
+    def has_export_permission(self,request):
+        return request.user.has_perm('sanjilas.view_order_tracking') and super().has_export_permission(request)
+
+
 class ReadOnlyCommerceAdmin(ImportExportModelAdmin):
     def get_readonly_fields(self, request, obj=None):
         return tuple(field.name for field in self.model._meta.fields)
@@ -144,7 +162,7 @@ class ReadOnlyCommerceAdmin(ImportExportModelAdmin):
 
 
 @admin.register(Cart)
-class CartAdmin(ReadOnlyCommerceAdmin):
+class CartAdmin(TrackingFieldsMixin,ReadOnlyCommerceAdmin):
     list_display = ('id', 'user', 'created_at')
     search_fields = ('user__username',)
 
@@ -157,14 +175,14 @@ class CartItemAdmin(ReadOnlyCommerceAdmin):
 
 
 @admin.register(Order)
-class OrderAdmin(ImportExportModelAdmin):
+class OrderAdmin(TrackingFieldsMixin,ImportExportModelAdmin):
     control_workspace = "orders"
     list_display = ('reference', 'customer_name', 'status', 'payment_status', 'delivery_zone', 'total', 'currency', 'created_at')
-    list_filter = ('status','payment_status','delivery_zone')
+    list_filter = ('status','payment_status','delivery_zone','review_status')
     search_fields = ('id', 'customer_name', 'email', 'phone')
 
     def get_readonly_fields(self, request, obj=None):
-        return tuple(field.name for field in self.model._meta.fields if field.name != 'status')
+        return tuple(field.name for field in self.model._meta.fields if field.name != 'status' and (request.user.has_perm('sanjilas.view_order_tracking') or field.name not in self.tracking_fields))
 
     def has_add_permission(self, request):
         return False
@@ -213,6 +231,89 @@ class InvoiceRevisionAdmin(ReadOnlyCommerceAdmin):
 @admin.register(OrderPayment)
 class OrderPaymentAdmin(InvoiceRevisionAdmin):
     list_display=('order','kind','amount','method','is_simulated','occurred_at','actor')
+
+
+@admin.register(CommerceActivity)
+class CommerceActivityAdmin(ReadOnlyCommerceAdmin):
+    list_display=('kind','ip','user','order','response_status','created_at')
+    list_filter=('kind','response_status')
+    search_fields=('ip','browser_key','user__username')
+    def get_queryset(self,request):
+        rows=super().get_queryset(request)
+        if request.user.is_superuser:return rows
+        from django.db.models import Q
+        oma=admin.site._registry[Order];cma=admin.site._registry[Cart]
+        orders=[obj.pk for obj in oma.get_queryset(request) if oma.has_view_or_change_permission(request,obj)] if oma.has_module_permission(request) and oma.has_view_or_change_permission(request) else []
+        carts=[obj.pk for obj in cma.get_queryset(request) if cma.has_view_or_change_permission(request,obj)] if cma.has_module_permission(request) and cma.has_view_or_change_permission(request) else []
+        return rows.filter(Q(order__in=orders)|Q(order__isnull=True,cart__in=carts,user__isnull=False)) if request.user.has_perm('sanjilas.view_order_tracking') else rows.none()
+    def has_view_permission(self,request,obj=None):
+        if not request.user.has_perm('sanjilas.view_order_tracking') or not super().has_view_permission(request,obj):return False
+        if obj is None:return True
+        if obj.order_id:
+            ma=admin.site._registry[Order]
+            return ma.has_module_permission(request) and ma.has_view_or_change_permission(request,obj.order)
+        if obj.cart_id:
+            ma=admin.site._registry[Cart]
+            return ma.has_module_permission(request) and ma.has_view_or_change_permission(request,obj.cart)
+        return request.user.is_superuser
+
+
+from .models import CommerceBlock, CommerceLimit, OrderReview
+
+
+@admin.register(CommerceBlock)
+class CommerceBlockAdmin(ImportExportModelAdmin):
+    list_display = ('kind','value','reason','expires_at','is_active')
+    list_filter = ('kind','is_active')
+    search_fields = ('value','reason')
+    readonly_fields = ('created_at',)
+
+
+@admin.register(CommerceLimit)
+class CommerceLimitAdmin(ReadOnlyCommerceAdmin):
+    list_display = ('key','count','expires_at')
+
+
+@admin.register(OrderReview)
+class OrderReviewAdmin(InvoiceRevisionAdmin):
+    list_display = ('order','decision','actor','reason','created_at')
+
+
+from axes.models import AccessAttempt, AccessLog, AccessFailureLog
+from axes.admin import AccessAttemptAdmin, AccessLogAdmin, AccessFailureLogAdmin
+
+
+class LoginSecurityAdminMixin:
+    """System-generated records: review/export, and permission-controlled cleanup."""
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_import_permission(self, request):
+        return False
+
+
+@admin.register(AccessAttempt)
+class LoginAttemptAdmin(LoginSecurityAdminMixin, AccessAttemptAdmin, ImportExportModelAdmin):
+    # Avoid colliding with the optional reverse OneToOne relation of this name.
+    readonly_fields = [name if name != 'expiration' else 'attempt_expiration' for name in AccessAttemptAdmin.readonly_fields]
+    fieldsets = tuple((title, {**options, 'fields': tuple('attempt_expiration' if name == 'expiration' else name for name in options['fields'])}) for title, options in AccessAttemptAdmin.fieldsets)
+
+    @admin.display(description='Expiration')
+    def attempt_expiration(self, obj):
+        return self.expiration(obj)
+
+
+@admin.register(AccessLog)
+class LoginAccessAdmin(LoginSecurityAdminMixin, AccessLogAdmin, ImportExportModelAdmin):
+    pass
+
+
+@admin.register(AccessFailureLog)
+class LoginFailureAdmin(LoginSecurityAdminMixin, AccessFailureLogAdmin, ImportExportModelAdmin):
+    pass
 
 
 for model in apps.get_app_config("sanjilas").get_models():

@@ -112,7 +112,7 @@ export default function Home() {
     document.getElementById('jewellery')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
   const navigation = [
-    ['/login/', l.nav_login], ['#collections', l.nav_categories], ['#jewellery', l.nav_featured], ['#story', l.nav_story],
+    ['#collections', l.nav_categories], ['#jewellery', l.nav_featured], ['#story', l.nav_story],
   ]
 
   return <>

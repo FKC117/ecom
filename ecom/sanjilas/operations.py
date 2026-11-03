@@ -41,6 +41,7 @@ def orders(request):
     term=request.GET.get('q','').strip()[:120]
     if term:
         query=Q(customer_name__icontains=term)|Q(email__icontains=term)|Q(phone__icontains=term)
+        if request.user.has_perm('sanjilas.view_order_tracking'):query|=Q(checkout_ip__iexact=term)|Q(browser_key__iexact=term)
         number=term.upper().removeprefix('ORD-')
         if term.upper().startswith('ORD-') and '-' in number:
             suffix=number.rsplit('-',1)[-1]
@@ -51,10 +52,14 @@ def orders(request):
     counts={value:sum(obj.status==value for obj in visible) for value,_ in Order.Status.choices}
     status=request.GET.get('status','')
     if status: visible=[obj for obj in visible if obj.status==status]
+    can_review = request.user.has_perm('sanjilas.review_order')
+    if request.GET.get('review') == 'pending':
+        if not can_review: raise PermissionDenied
+        visible = [obj for obj in visible if obj.review_status == 'pending' and obj.status != 'cancelled']
     page,meta=page_data(visible,request)
-    return control.JsonResponse({**meta,'counts':counts,'statuses':list(Order.Status.choices),'rows':[
+    return control.JsonResponse({**meta,'can_review':can_review,'counts':counts,'statuses':list(Order.Status.choices),'rows':[
         {'id':str(obj.pk),'reference':obj.reference,'source':obj.source,**payments.summary(obj),'delivery_zone':obj.delivery_zone,'revision':obj.revision,'can_mark_payment':allowed(ma,request,obj,True) and request.user.has_perm('sanjilas.mark_payment'),
-        'customer':obj.customer_name,'status':obj.status,**payments.summary(obj),
+        'customer':obj.customer_name,'status':obj.status,'review_status':obj.review_status if can_review else None,**payments.summary(obj),
          'total':obj.total,'currency':obj.currency,'created_at':obj.created_at.isoformat()} for obj in page]})
 
 
@@ -64,6 +69,8 @@ def orders(request):
 def order_detail(request,pk):
     from .invoice_edits import can_edit
     from .models import InvoiceRevision
+    from .tracking import order_context
+    from .order_protection import review_data
     ma=admin.site._registry[Order]
     obj=get_object_or_404(ma.get_queryset(request).select_for_update(),pk=pk)
     if not allowed(ma,request,obj): raise PermissionDenied
@@ -72,7 +79,7 @@ def order_detail(request,pk):
     transitions={'placed':['processing','cancelled'],'processing':['shipped','cancelled'],'shipped':['completed'],'completed':[],'cancelled':[]}
     item_admin=admin.site._registry[Order._meta.get_field('items').related_model]
     items=item_admin.get_queryset(request).filter(order=obj) if allowed(item_admin,request) else []
-    return control.JsonResponse({'id':str(obj.pk),'reference':obj.reference,'status':obj.status,'can_edit_invoice':can_edit(request,obj),'can_history':allowed(admin.site._registry[InvoiceRevision],request),
+    return control.JsonResponse({'id':str(obj.pk),'reference':obj.reference,'review':review_data(request,obj),'tracking':order_context(request,obj),'status':obj.status,'can_edit_invoice':can_edit(request,obj),'can_history':allowed(admin.site._registry[InvoiceRevision],request),
         **payments.summary(obj),
         'payments':payments.entries(obj,request),'advance_pending':obj.payment_method=='delivery_advance' and not obj.advance_verified,'advance_reference':obj.advance_reference,'advance_amount':obj.advance_amount,'advance_channel':obj.advance_channel,
         'regular_subtotal':sum(item.regular_price*item.quantity for item in obj.items.all()),
@@ -81,8 +88,25 @@ def order_detail(request,pk):
         'customer':obj.customer_name,'email':obj.email,'phone':obj.phone,'address':obj.address,'area':obj.area,'city':obj.city,
         'postal_code':obj.postal_code,'notes':obj.notes,'created_at':obj.created_at.isoformat(),
         'subtotal':obj.subtotal,'shipping_fee':obj.shipping_fee,'total':obj.total,'currency':obj.currency,
-        'statuses':list(Order.Status.choices),'actions':transitions[obj.status] if can_change else [],
+        'statuses':list(Order.Status.choices),'actions':[action for action in transitions[obj.status] if action=='cancelled' or obj.review_status not in ['pending','rejected']] if can_change else [],
         'items':[{'name':item.product_name,'variant':item.variant_name,'sku':item.sku,'quantity':item.quantity,'regular_price':item.regular_price,'discount':(item.regular_price-item.unit_price)*item.quantity,'unit_price':item.unit_price,'total':item.line_total} for item in items if allowed(item_admin,request,item)]})
+
+
+@control.operator_required
+@require_POST
+@transaction.atomic
+def review_order(request,pk):
+    from .order_protection import decide
+    ma=admin.site._registry[Order]
+    obj=get_object_or_404(ma.get_queryset(request).select_for_update(),pk=pk)
+    if not allowed(ma,request,obj,True) or not request.user.has_perm('sanjilas.review_order'): raise PermissionDenied
+    if request.POST.get('expected') != obj.review_status:
+        return control.api_error('review_stale',409)
+    try:
+        decide(request,obj,request.POST.get('decision'),request.POST.get('reason',''))
+    except ValidationError as error:
+        return control.api_error('invalid_form',400,errors=getattr(error,'message_dict',{'__all__':error.messages}))
+    return control.JsonResponse({'ok':True})
 
 
 def stock_queryset(model,request):

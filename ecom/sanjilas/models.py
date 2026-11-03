@@ -51,6 +51,13 @@ class SiteSettings(models.Model):
     invoice_terms = models.TextField(blank=True,default=invoice_terms_default,help_text='One invoice clause per line. Use {site_name} for the current site name. Leave blank to hide the block.')
     low_stock_threshold = models.PositiveIntegerField(default=3)
     cart_reservation_minutes = models.PositiveIntegerField(default=10, validators=[MinValueValidator(1)], help_text='A cart item reserves stock for this many minutes; viewing the cart never extends the hold.')
+    order_protection_enabled = models.BooleanField(default=True)
+    duplicate_order_minutes = models.PositiveIntegerField(default=10, validators=[MinValueValidator(1)])
+    checkout_attempt_limit = models.PositiveIntegerField(default=10, validators=[MinValueValidator(1)], help_text='Maximum checkout submissions per account, browser or phone in a fixed 10-minute window.')
+    reservation_attempt_limit = models.PositiveIntegerField(default=30, validators=[MinValueValidator(1)], help_text='Maximum reservation changes per account or browser in a fixed 10-minute window. Removing items remains allowed.')
+    cart_unit_limit = models.PositiveIntegerField(default=20, validators=[MinValueValidator(1)])
+    order_review_phone_limit = models.PositiveIntegerField(default=2, validators=[MinValueValidator(1)], help_text='Review another order when this many open orders already share its phone.')
+    order_review_ip_limit = models.PositiveIntegerField(default=8, validators=[MinValueValidator(1)], help_text='Review orders after this many online orders from one IP in an hour; never automatically reject on IP alone.')
     shop_currency = models.CharField(max_length=3, default='BDT')
     shipping_fee = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
     delivery_inside_dhaka = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
@@ -489,6 +496,10 @@ class ProductImage(CatalogRecord):
 class Cart(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='shopping_cart')
+    last_ip=models.GenericIPAddressField(null=True,blank=True,editable=False)
+    browser_key=models.CharField(max_length=64,blank=True,editable=False,db_index=True)
+    user_agent=models.CharField(max_length=512,blank=True,editable=False)
+    last_activity_at=models.DateTimeField(null=True,blank=True,editable=False)
     checkout_draft = models.JSONField(default=dict,blank=True,editable=False)
     draft_expires_at = models.DateTimeField(null=True,blank=True,editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -553,6 +564,14 @@ class Order(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     reference_number = models.PositiveBigIntegerField(unique=True, editable=False, db_default=RawSQL("nextval('sanjilas_order_reference_seq')", ()))
     user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='shop_orders')
+    checkout_ip=models.GenericIPAddressField(null=True,blank=True,editable=False,db_index=True)
+    browser_key=models.CharField(max_length=64,blank=True,editable=False,db_index=True)
+    user_agent=models.CharField(max_length=512,blank=True,editable=False)
+    checkout_recorded_at=models.DateTimeField(null=True,blank=True,editable=False)
+    normalized_phone = models.CharField(max_length=20, blank=True, editable=False, db_index=True)
+    checkout_fingerprint = models.CharField(max_length=64, blank=True, editable=False, db_index=True)
+    review_status = models.CharField(max_length=10, choices=[('clear','No review needed'),('pending','Needs review'),('approved','Approved'),('rejected','Rejected')], default='clear', editable=False, db_index=True)
+    review_reasons = models.JSONField(default=list, blank=True, editable=False)
     revision = models.PositiveIntegerField(default=1, editable=False)
     source = models.CharField(max_length=10, choices=[('online','Online'),('manual','Manual invoice')], default='online', editable=False)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='issued_manual_orders', editable=False)
@@ -583,11 +602,13 @@ class Order(models.Model):
 
     class Meta:
         ordering = ('-created_at',)
-        permissions = [('create_manual_invoice', 'Can create manual invoices'),('edit_invoice','Can amend invoices'),('mark_payment','Can record invoice payments and refunds')]
+        permissions = [('create_manual_invoice', 'Can create manual invoices'),('edit_invoice','Can amend invoices'),('mark_payment','Can record invoice payments and refunds'),('view_order_tracking','Can view order IP and browser tracking'),('review_order','Can approve or reject suspicious orders')]
 
     def clean(self):
         super().clean()
         if self.area_record_id and self.area_record.city_id!=self.city_record_id:raise ValidationError({'area_record':'Area must belong to the selected city.'})
+        if self.status in ['processing','shipped','completed'] and self.review_status in ['pending','rejected']:
+            raise ValidationError({'status':'Approve this order review before fulfilment.'})
         if not self._state.adding:
             previous=type(self).objects.filter(pk=self.pk).values_list('status',flat=True).first()
             allowed={'placed':{'processing','cancelled'},'processing':{'shipped','cancelled'},'shipped':{'completed'},'completed':set(),'cancelled':set()}
@@ -608,6 +629,75 @@ class Order(models.Model):
 
     def __str__(self):
         return self.reference
+
+
+class CommerceBlock(models.Model):
+    kind = models.CharField(max_length=10, choices=[('phone','Phone'),('user','Account ID'),('browser','Browser identifier'),('ip','IP address')])
+    value = models.CharField(max_length=64, help_text='Exact identifier. IP blocks also affect other people sharing that connection.')
+    reason = models.CharField(max_length=500, help_text='Internal reason; never shown to customers.')
+    expires_at = models.DateTimeField(help_text='Required expiry; use a temporary block and review before extending it.')
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+        verbose_name = 'Commerce block'
+
+    def clean(self):
+        super().clean()
+        from .order_protection import normalize_phone
+        from .tracking import address
+        self.value = self.value.strip()
+        self.reason = self.reason.strip()
+        if not self.reason: raise ValidationError({'reason':'Enter an internal reason.'})
+        if self.kind == 'phone':
+            try: self.value = normalize_phone(self.value)
+            except ValidationError as error: raise ValidationError({'value':error.messages}) from error
+        elif self.kind == 'ip':
+            ip = address(self.value)
+            if ip is None: raise ValidationError({'value':'Enter a valid IP address.'})
+            self.value = str(ip)
+        elif self.kind == 'browser':
+            if len(self.value)!=64 or any(c not in '0123456789abcdef' for c in self.value): raise ValidationError({'value':'Enter the full browser identifier shown in order tracking.'})
+        elif self.kind == 'user':
+            if not self.value.isdecimal() or not self.value or int(self.value)<1: raise ValidationError({'value':'Enter a valid account ID.'})
+            self.value = str(int(self.value))
+
+    def save(self,*args,**kwargs):
+        self.full_clean()
+        return super().save(*args,**kwargs)
+
+    def __str__(self): return f'{self.get_kind_display()}: {self.value}'
+
+
+class CommerceLimit(models.Model):
+    key = models.CharField(max_length=64, unique=True)
+    count = models.PositiveIntegerField(default=0)
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        verbose_name = 'Commerce rate counter'
+
+    def __str__(self): return self.key
+
+
+class OrderReview(models.Model):
+    order = models.ForeignKey(Order, on_delete=models.PROTECT, related_name='reviews')
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    decision = models.CharField(max_length=10, choices=[('approved','Approved'),('rejected','Rejected')])
+    reason = models.CharField(max_length=500)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-created_at','-pk')
+
+    def save(self,*args,**kwargs):
+        if not self._state.adding or not getattr(self,'_review_write',False): raise ValidationError('Use the order review service.')
+        return super().save(*args,**kwargs)
+
+    def delete(self,*args,**kwargs): raise ValidationError('Order review history cannot be deleted.')
+
+    def __str__(self): return f'{self.order}: {self.get_decision_display()}'
 
 
 class OrderItem(models.Model):
@@ -698,3 +788,23 @@ class OrderPayment(models.Model):
         raise ValidationError('Payment records cannot be deleted. Record a refund or correcting payment.')
 
     def __str__(self):return f'{self.order} / {self.kind} / {self.amount}'
+
+
+class CommerceActivity(models.Model):
+    user=models.ForeignKey(settings.AUTH_USER_MODEL,null=True,blank=True,on_delete=models.SET_NULL)
+    cart=models.ForeignKey(Cart,null=True,blank=True,on_delete=models.SET_NULL)
+    order=models.ForeignKey(Order,null=True,blank=True,on_delete=models.SET_NULL)
+    kind=models.CharField(max_length=20,choices=[('cart_view','Cart viewed'),('cart_change','Cart reservation attempt'),('checkout','Checkout attempt')])
+    ip=models.GenericIPAddressField(null=True,blank=True,db_index=True)
+    browser_key=models.CharField(max_length=64,db_index=True)
+    user_agent=models.CharField(max_length=512,blank=True)
+    response_status=models.PositiveSmallIntegerField()
+    created_at=models.DateTimeField(auto_now_add=True,db_index=True)
+    class Meta:
+        ordering=('-created_at','-pk')
+        verbose_name_plural='Commerce activity'
+    def save(self,*args,**kwargs):
+        if not self._state.adding or not getattr(self,'_tracking_write',False):raise ValidationError('Activity records are written by the tracking service.')
+        return super().save(*args,**kwargs)
+    def delete(self,*args,**kwargs):raise ValidationError('Use the retention cleanup command to remove expired tracking data.')
+    def __str__(self):return f'{self.get_kind_display()} / {self.response_status} / {self.created_at}'

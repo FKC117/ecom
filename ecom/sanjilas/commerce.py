@@ -66,7 +66,7 @@ def get_cart(user):
 
 
 @transaction.atomic
-def set_item(user, product_id, variant_id, quantity):
+def set_item(user, product_id, variant_id, quantity, context=None):
     cart = get_cart(user)
     cart = Cart.objects.select_for_update().get(pk=cart.pk)
     product = Product.objects.select_for_update().filter(pk=product_id).first()
@@ -82,6 +82,12 @@ def set_item(user, product_id, variant_id, quantity):
         if not cart.items.exists():
             cart.checkout_draft={};cart.draft_expires_at=None;cart.save(update_fields=['checkout_draft','draft_expires_at'])
         return cart
+    site = SiteSettings.load()
+    if site.order_protection_enabled:
+        from .order_protection import check_blocks
+        check_blocks(user, context or {})
+        other_units = cart.items.filter(expires_at__gt=timezone.now()).exclude(pk=existing.pk if existing else None).aggregate(total=Sum('quantity'))['total'] or 0
+        if other_units + quantity > site.cart_unit_limit: raise ShopError('shop_cart_limit')
     item = target(product,variant)
     check_sale(product,item,quantity,cart)
     now = timezone.now()
@@ -133,6 +139,8 @@ def place_order(user, key, details, quote=None):
     lines = list(cart.items.all())
     if not lines:
         raise ShopError('shop_empty')
+    from .order_protection import assess
+    assess(user, details, lines, site)
     products, variants = lock_catalog(lines)
     now = timezone.now()
     if any(line.expires_at <= now for line in lines):
@@ -183,6 +191,8 @@ def transition_order(order_id, status, user=None, actor=None):
         raise ShopError('shop_cancel_denied',403)
     if order.status == status:
         return order
+    if status in ['processing','shipped','completed'] and order.review_status in ['pending','rejected']:
+        raise ValidationError({'status':'Approve this order review before fulfilment.'})
     allowed = {'placed': {'processing','cancelled'}, 'processing': {'shipped','cancelled'}, 'shipped': {'completed'}, 'completed': set(), 'cancelled': set()}
     if status not in allowed[order.status]:
         raise ValidationError({'status':'This order status transition is not allowed.'})

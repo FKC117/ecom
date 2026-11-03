@@ -1,4 +1,5 @@
 import PaymentPanel from './PaymentPanel'
+import OrderReviewPanel from './OrderReviewPanel'
 import { useEffect, useRef, useState } from 'react'
 import { controlRequest } from './api'
 
@@ -24,6 +25,7 @@ export default function Operations({kind,canCreate,route,labels:l,navigate,setDi
   const [error,setError]=useState(null)
   const [query,setQuery]=useState('')
   const [filter,setFilter]=useState('')
+  const [reviewOnly,setReviewOnly]=useState(false)
   const [term,setTerm]=useState('')
   const [page,setPage]=useState(1)
   const [revision,setRevision]=useState(0)
@@ -35,7 +37,7 @@ export default function Operations({kind,canCreate,route,labels:l,navigate,setDi
   const [busy,setBusy]=useState(false)
   useEffect(()=>{if(invoiceHistory){historyPanel.current?.focus({preventScroll:true});historyPanel.current?.scrollIntoView({block:'start'})}},[invoiceHistory])
   const id=route.split('/').filter(Boolean)[1]
-  const endpoint=kind==='orders'&&id?`operations/orders/${encodeURIComponent(id)}/`:`operations/${kind}/?q=${encodeURIComponent(query)}&${kind==='orders'?'status':'state'}=${encodeURIComponent(filter)}&page=${page}`
+  const endpoint=kind==='orders'&&id?`operations/orders/${encodeURIComponent(id)}/`:`operations/${kind}/?q=${encodeURIComponent(query)}&${kind==='orders'?'status':'state'}=${encodeURIComponent(filter)}&review=${reviewOnly?'pending':''}&page=${page}`
   useEffect(()=>{
     const controller=new AbortController()
     controlRequest(endpoint,{signal:controller.signal}).then((result)=>{setData(result);setError(null)}).catch((failure)=>{if(failure.name!=='AbortError'){setError(failure);onAuthError(failure)}})
@@ -62,6 +64,7 @@ export default function Operations({kind,canCreate,route,labels:l,navigate,setDi
     <Errors error={error}/>{!data&&!error&&<p role="status">{l.loading}</p>}
     {data&&id&&kind==='orders'?<>
       <button className="control-back" onClick={()=>navigate('/operations.orders')}>← {l.back}</button>
+      <OrderReviewPanel key={data.id} order={data} labels={l} setDirty={setDirty} onSaved={()=>{setRevision((value)=>value+1);onRefresh().catch(()=>{})}}/>
       <section className="control-form-section ops-order-panel">
         <header className="ops-order-heading"><h2>{l.ops_order_details}</h2><div className="control-toolbar">{data.can_edit_invoice&&<button className="control-button" onClick={()=>navigate(`/operations.orders/${data.id}/edit`)}>{l.invoice_edit}</button>}{data.can_history&&<button className="control-button" onClick={async()=>{try{setInvoiceHistory(await controlRequest(`invoices/${data.id}/history/`))}catch(failure){setError(failure)}}}>{l.invoice_history}</button>}<a className="control-button" href={`/invoice/${data.id}/`} target="_blank" rel="noreferrer">{l.ops_invoice} ↗</a><span className="ops-status-badge">{statuses[data.status]}</span></div></header>
         <div className="ops-order-grid">
@@ -73,15 +76,17 @@ export default function Operations({kind,canCreate,route,labels:l,navigate,setDi
         {data.actions.length>0&&<div className="ops-order-actions"><h3>{l.ops_action}</h3><div className="control-toolbar">{data.actions.map((status)=><button className={`control-button ${pending===status?'primary':status==='cancelled'?'danger-outline':''}`} key={status} disabled={busy} aria-pressed={pending===status} onClick={()=>setPending(status)}>{statuses[status]}</button>)}</div></div>}
         {pending&&<section className="ops-status-confirm" aria-label={l.ops_confirm}><div><span className="ops-status-badge">{statuses[pending]}</span><p>{l.ops_confirm_status}</p></div><div className="control-toolbar"><button className="control-button" disabled={busy} onClick={()=>setPending('')}>{l.cancel}</button><button className="control-button primary" disabled={busy} onClick={changeStatus}>{l.ops_confirm}</button></div></section>}
       </section>
+      {data.tracking&&<section className="control-form-section"><h2>{l.tracking_title}</h2><p className="control-muted">{l.tracking_help}</p><dl className="tracking-details">{[['ip','tracking_ip'],['browser_key','tracking_browser'],['user_agent','tracking_agent'],['recorded_at','tracking_time']].map(([field,label])=><div key={field}><dt>{l[label]}</dt><dd>{field==='recorded_at'&&data.tracking[field]?new Date(data.tracking[field]).toLocaleString():data.tracking[field]||l.blank}</dd></div>)}</dl>{data.tracking.events.length>0&&<div className="control-table-wrap"><table className="control-table"><thead><tr><th>{l.tracking_time}</th><th>{l.tracking_event}</th><th>{l.tracking_ip}</th><th>{l.tracking_status}</th></tr></thead><tbody>{data.tracking.events.map((event,index)=><tr key={index}><td data-label={l.tracking_time}>{new Date(event.created_at).toLocaleString()}</td><td data-label={l.tracking_event}>{event.kind}</td><td data-label={l.tracking_ip}>{event.ip||l.blank}</td><td data-label={l.tracking_status}>{event.status}</td></tr>)}</tbody></table></div>}</section>}
       <PaymentPanel key={data.id} data={data} labels={l} onSaved={()=>{setRevision((value)=>value+1);setInvoiceHistory(null)}}/>
       <section className="control-form-section"><div className="control-table-wrap"><table className="control-table"><thead><tr><th>{l.ops_item}</th><th>{l.ops_sku}</th><th>{l.ops_quantity}</th><th>{l.manual_regular_price}</th><th>{l.manual_discount_total}</th><th>{l.invoice_net_unit}</th><th>{l.ops_total}</th></tr></thead><tbody>{data.items.map((item,index)=><tr key={index}><td data-label={l.ops_item}>{item.name}<br/>{item.variant}</td><td data-label={l.ops_sku}>{item.sku||l.blank}</td><td data-label={l.ops_quantity}>{item.quantity}</td><td data-label={l.manual_regular_price}>{money(item.regular_price,data.currency)}</td><td data-label={l.manual_discount_total}>{money(item.discount,data.currency)}</td><td data-label={l.invoice_net_unit}>{money(item.unit_price,data.currency)}</td><td data-label={l.ops_total}>{money(item.total,data.currency)}</td></tr>)}</tbody></table></div><dl className="bag-totals"><div><dt>{l.invoice_regular_subtotal}</dt><dd>{money(data.regular_subtotal,data.currency)}</dd></div><div><dt>{l.manual_discount_total}</dt><dd>{money(data.discount_total,data.currency)}</dd></div><div><dt>{l.ops_subtotal}</dt><dd>{money(data.subtotal,data.currency)}</dd></div><div><dt>{l.ops_shipping}</dt><dd>{money(data.shipping_fee,data.currency)}</dd></div><div><dt>{l.ops_total}</dt><dd>{money(data.total,data.currency)}</dd></div></dl></section>
     </>:data&&<>
       <div className="ops-metrics">{Object.entries(kind==='orders'?data.counts:data.summary).map(([key,value])=><div key={key}><span>{kind==='orders'?statuses[key]:l[`ops_${key}`]}</span><strong>{value}</strong></div>)}</div>
       <form className="ops-filters" onSubmit={(event)=>{event.preventDefault();setQuery(term);setPage(1)}}><label>{l.search}<input type="search" value={term} onChange={(event)=>setTerm(event.target.value)}/></label><label>{kind==='orders'?l.ops_status:l.ops_stock}<select value={filter} onChange={(event)=>{setFilter(event.target.value);setPage(1)}}><option value="">{l.ops_all}</option>{kind==='orders'?data.statuses.map(([key,label])=><option key={key} value={key}>{label}</option>):['low','untracked'].map((key)=><option key={key} value={key}>{l[`ops_${key}`]}</option>)}</select></label><button className="control-button">{l.search}</button></form>
       {kind==='stock'&&<p className="control-muted">{l.ops_low_help}: {data.threshold}</p>}
+      {kind==='orders'&&data.can_review&&<label className="review-queue-filter"><input type="checkbox" checked={reviewOnly} onChange={(event)=>{setReviewOnly(event.target.checked);setPage(1)}}/>{l.review_queue}</label>}
       <section className="control-records-panel"><div className="control-table-wrap"><table className="control-table ops-list-table"><thead><tr>{(kind==='orders'?[l.ops_orders,l.ops_customer,l.ops_status,l.payment_status,l.ops_total,l.ops_when]:[l.ops_item,l.ops_sku,l.ops_on_hand,l.ops_reserved,l.ops_available]).map((label,index)=><th scope="col" key={index}>{label}</th>)}<th scope="col"><span className="sr-only">{l.manage}</span></th></tr></thead><tbody>{data.rows.map((row)=><tr key={kind==='orders'?row.id:`${row.model}-${row.id}`}>
         <td data-label={kind==='orders'?l.ops_orders:l.ops_item}><div className="ops-row-identity">{kind==='orders'?<button className="control-record-link" onClick={()=>navigate(`/operations.orders/${row.id}`)}>{row.reference}</button>:<strong>{row.name}</strong>}{kind==='stock'&&<span className="control-muted">{row.variant}</span>}{kind==='orders'&&row.simulated&&<span className="control-muted">{l.dummy_payment_title}</span>}{kind==='orders'&&row.source==='manual'&&<span className="control-muted">{l.manual_title}</span>}</div></td>
-        <td data-label={kind==='orders'?l.ops_customer:l.ops_sku}>{kind==='orders'?row.customer:row.sku||l.blank}</td>
+        <td data-label={kind==='orders'?l.ops_customer:l.ops_sku}>{kind==='orders'?<>{row.customer}{row.review_status==='pending'&&<span className="ops-status-badge review-queue-badge">{l.review_pending}</span>}</>:row.sku||l.blank}</td>
         <td data-label={kind==='orders'?l.ops_status:l.ops_on_hand}>{kind==='orders'?<span className="control-status-pill">{statuses[row.status]}</span>:row.on_hand}</td>
         <td data-label={kind==='orders'?l.payment_status:l.ops_reserved}>{kind==='orders'?l[row.payment_status]:row.reserved}</td>
         <td data-label={kind==='orders'?l.ops_total:l.ops_available}><div className="ops-row-identity"><strong>{kind==='orders'?money(row.total,row.currency):row.available}</strong>{kind==='stock'&&(!row.tracked?<span>{l.ops_untracked}</span>:row.available<=data.threshold&&<span className="ops-low">{l.ops_low}</span>)}</div></td>

@@ -795,3 +795,16 @@ h2 { font-size: clamp(32px, 3.2vw, 48px); line-height: 1.12; letter-spacing: -.0
   .invoice-footer { margin-top: 12px; padding-top: 8px; }
   .invoice-footer .invoice-generated-note { font-size: 10px; }
 }
+
+.tracking-details { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px 24px; margin: 20px 0; }
+.tracking-details dt { color: var(--muted); font-size: var(--font-caption); margin-bottom: 7px; }
+.tracking-details dd { margin: 0; overflow-wrap: anywhere; line-height: 1.6; }
+@media(max-width:760px) { .tracking-details { grid-template-columns: minmax(0,1fr); } }
+.order-review-panel.needs-review { border-inline-start: 4px solid var(--accent); }
+.order-review-form { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(220px, 2fr) auto; align-items: end; gap: 16px; }
+.order-review-form label { display: grid; gap: 8px; }
+.order-review-form input, .order-review-form select { width: 100%; min-height: 44px; }
+.review-queue-filter { display: flex; align-items: center; gap: 10px; margin-block: 12px; }
+.review-queue-filter input { width: auto; }
+.review-queue-badge { display: block; width: fit-content; margin-top: 6px; }
+@media (max-width: 760px) { .order-review-form { grid-template-columns: 1fr; } }

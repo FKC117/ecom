@@ -36,7 +36,9 @@ def customer(view):
         try:
             return view(request,*args,**kwargs)
         except commerce.ShopError as error:
-            return fail(error.key,error.status)
+            response = fail(error.key,error.status)
+            if error.status == 429: response['Retry-After'] = '600'
+            return response
         except ValidationError as error:
             return fail('shop_invalid',400,errors=getattr(error,'message_dict',{'__all__':error.messages}))
         except (ValueError, TypeError, IntegrityError):
@@ -95,7 +97,10 @@ def cart_item(request):
     quantity=int(request.POST.get('quantity',''))
     if not 0<=quantity<=999:
         return fail('shop_invalid')
-    commerce.set_item(request.user,product,variant,quantity)
+    if quantity:
+        from .order_protection import preflight
+        preflight(request, 'reservation')
+    commerce.set_item(request.user,product,variant,quantity,context=getattr(request,'commerce_context',{}))
     return JsonResponse(cart_data(request.user,request.session.get("delivery_zone","inside")))
 
 
@@ -118,6 +123,9 @@ class CheckoutForm(forms.Form):
 
     def clean(self):
         data=super().clean()
+        if 'phone' in data:
+            from .order_protection import normalize_phone
+            data['phone'] = normalize_phone(data['phone'])
         if 'city' in data and 'area' in data:
             from .locations import resolve
             data.update(resolve(data['city'],data['area']))
@@ -127,6 +135,15 @@ class CheckoutForm(forms.Form):
 @customer
 @require_POST
 def checkout(request):
+    import uuid
+    from .order_protection import normalize_phone, preflight
+    try: retry_key = uuid.UUID(request.POST.get('checkout_key',''))
+    except (ValueError,TypeError,AttributeError): retry_key = None
+    try: submitted_phone = normalize_phone(request.POST.get('phone',''))
+    except ValidationError: submitted_phone = ''
+    # Include invalid submissions; only a genuine successful retry skips throttling.
+    if not retry_key or not Order.objects.filter(checkout_key=retry_key,user=request.user).exists():
+        preflight(request, 'checkout', submitted_phone)
     form=CheckoutForm(request.POST)
     if not form.is_valid():
         return fail('shop_invalid',errors={key:list(values) for key,values in form.errors.items()})
@@ -134,6 +151,7 @@ def checkout(request):
     key=details.pop('checkout_key')
     quote=details.pop('quote')
     details['delivery_zone']=details.get('delivery_zone') or request.session.get('delivery_zone','inside')
+    details.update(getattr(request,'commerce_context',{}))
     order=commerce.place_order(request.user,key,details,quote=quote)
     return JsonResponse({'order':order_data(order),'cart':cart_data(request.user)})
 
