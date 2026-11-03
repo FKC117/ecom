@@ -5,6 +5,12 @@ def control_labels():
     """Backend-owned copy for the React control panel."""
     return {
         **staff_copy(),
+        'gallery_title':'Gallery images', 'gallery_add':'Add image',
+        'gallery_save_another':'Save and add another',
+        'gallery_help':'Additional product photos. Edit an image to crop it, change its order or hide it. Lower positions appear first.',
+        'gallery_save_first':'Save the product first, then add gallery images here.',
+        'gallery_empty':'No additional images yet.', 'gallery_position':'Position',
+        'gallery_visible':'Visible', 'gallery_hidden':'Hidden',
         "invoice_variant": "Variant description", "invoice_edit_saved": "Invoice amended",
         **{'invoice_edit': 'Edit invoice', 'invoice_edit_title': 'Amend invoice', 'invoice_edit_reason': 'Reason for amendment', 'invoice_edit_save': 'Save amendment', 'invoice_edit_stock': 'This change exceeds available stock or would consume another cart reservation.', 'invoice_stale': 'This invoice changed while you were editing. Reload it before saving.', 'invoice_history': 'Edit history', 'invoice_version': 'Version', 'invoice_before': 'Before', 'invoice_after': 'After', 'invoice_catalog_discount': 'Existing catalog discount per unit', 'invoice_catalog_price': 'Current catalog selling price', 'invoice_net_unit': 'Discounted unit price', 'invoice_edit_note': 'Changes update stock by the difference only. Invoice references remain unchanged.', 'invoice_regular_subtotal': 'Subtotal before discount', 'invoice_history_reason': 'Reason', 'invoice_history_actor': 'Changed by'},
         **{'manual_discount_total': 'Total discount', 'manual_discount_type': 'Discount type', 'manual_discount_catalog': 'Use catalog discount', 'manual_discount_fixed': 'Fixed amount per unit', 'manual_discount_percent': 'Percentage', 'manual_discount_value': 'Discount value', 'manual_discount_help': 'Manual discounts replace catalog discounts and apply to the regular unit price.', 'manual_discount_invalid': 'Discount must not exceed the unit price; percentages must be between 0 and 100.', 'manual_regular_price': 'Regular unit price'},

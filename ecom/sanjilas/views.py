@@ -24,7 +24,7 @@ def site_settings(request):
 
 @never_cache
 @require_GET
-def home_page(request):
+def home_page(request, slug=None):
     page = HomePage.objects.filter(pk=1).first() or HomePage()
 
     def serialize(instance):
@@ -52,13 +52,16 @@ def home_page(request):
         return [{'id': tag.pk, 'name': tag.name, 'slug': tag.slug} for tag in item.tags.all()]
 
     def catalog(product):
+        from .jewellery import details
         data = serialize(product)
+        data['details'] = details(product,labels=page.labels)
         data.update(pricing(product))
         data['collections']=[item.pk for item in product.collections.all() if item.is_active]
         data['tags'] = tags(product)
         data['features'] = [{'id': f.pk, 'name': f.name, 'value': f.value} for f in product.features.all()]
         data['gallery'] = [serialize(image) for image in product.gallery.all()]
-        data['variants'] = [{**serialize(variant), **pricing(variant), 'tags': tags(variant), 'currency': product.currency} for variant in product.variants.all()]
+        data['variants'] = [{**serialize(variant), **pricing(variant), 'tags': tags(variant), 'currency': product.currency,
+                            'details':details(product,variant,labels=page.labels), 'care_instructions':variant.care_instructions.strip() or product.care_instructions.strip()} for variant in product.variants.all()]
         if data['variants']:
             variants = data['variants']
             available = [v for v in variants if v['can_purchase']] or [v for v in variants if v['availability'] != 'sold_out'] or variants
@@ -73,17 +76,41 @@ def home_page(request):
                 data['can_purchase'] = False
         return data
 
+    catalog_query = Product.objects.filter(is_active=True, category__is_active=True).prefetch_related(
+        'collections', Prefetch('tags', queryset=ProductTag.objects.filter(is_active=True)), 'features',
+        Prefetch('gallery', queryset=ProductImage.objects.filter(is_active=True)),
+        Prefetch('variants', queryset=ProductVariant.objects.filter(is_active=True).select_related('product').prefetch_related(Prefetch('tags', queryset=ProductTag.objects.filter(is_active=True)))),
+    )
+    product = catalog_query.filter(slug=slug).first() if slug else None
+    products = catalog_query
+    if slug:
+        products = list(catalog_query.filter(category=product.category).exclude(pk=product.pk)[:4]) if product else []
+        if product and len(products)<4:
+            products.extend(catalog_query.exclude(pk=product.pk).exclude(category=product.category)[:4-len(products)])
+    site_data = product_metadata(public_settings(site,request),product,request) if product else public_settings(site,request)
+    if slug and not product: site_data['robots']='noindex, nofollow'
     return JsonResponse({
-        "site": public_settings(SiteSettings.load(), request),
+        "site": site_data,
+        "product": catalog(product) if product else None,
         "page": {**serialize(page), 'labels': {**shop_labels(), **page.labels}},
         "categories": [serialize(item) for item in Category.objects.filter(is_active=True)],
         "collections": [serialize(item) for item in Collection.objects.filter(is_active=True)],
-        "products": [catalog(item) for item in Product.objects.filter(is_active=True, category__is_active=True).prefetch_related(
-            'collections', Prefetch('tags', queryset=ProductTag.objects.filter(is_active=True)), 'features',
-            Prefetch('gallery', queryset=ProductImage.objects.filter(is_active=True)),
-            Prefetch('variants', queryset=ProductVariant.objects.filter(is_active=True).select_related('product').prefetch_related(Prefetch('tags', queryset=ProductTag.objects.filter(is_active=True)))),
-        )],
-    })
+        "products": [catalog(item) for item in products],
+    }, status=404 if slug and not product else 200)
+
+
+def product_metadata(site, product, request):
+    from django.utils.html import strip_tags
+    from urllib.parse import urljoin
+    origin = site['site_url'] or request.build_absolute_uri('/')
+    url = urljoin(origin.rstrip('/')+'/', f'products/{product.slug}/')
+    title = f"{product.name} | {site['site_name']}"
+    description = strip_tags(product.description or product.subtitle)[:200] or site['meta_description']
+    image = urljoin(origin, product.image.url) if product.image else site['og_image']
+    return {**site, 'site_url':url, 'meta_title':title, 'meta_description':description,
+            'og_title':title, 'og_description':description, 'og_type':'product', 'og_image':image,
+            'og_image_alt':product.image_alt or product.name, 'twitter_title':title,
+            'twitter_description':description, 'twitter_image':image, 'twitter_image_alt':product.image_alt or product.name}
 
 
 @require_GET
@@ -94,13 +121,16 @@ def llms(request, full=False):
 
 @never_cache
 @require_GET
-def storefront(request, order_id=None):
+def storefront(request, order_id=None, product_slug=None):
     """React document with metadata visible to crawlers without JavaScript."""
     index = django_settings.BASE_DIR.parent / "frontend" / "dist" / "index.html"
     if not index.exists():
         return HttpResponse("Build the React frontend first (npm run build).", status=503, content_type="text/plain")
     site = public_settings(SiteSettings.load(), request)
     page = HomePage.objects.filter(pk=1).first() or HomePage()
+    product = Product.objects.filter(slug=product_slug,is_active=True,category__is_active=True).first() if product_slug else None
+    if product: site = product_metadata(site,product,request)
+    if product_slug and not product: site = {**site,'robots':'noindex, nofollow'}
     head = render_to_string("sanjilas/site_head.html", {"site": site})
     head += json_script({"labels": page.labels}, "storefront-bootstrap")
     document = index.read_text(encoding="utf-8").replace("<!--site-head-->", head)
@@ -109,4 +139,4 @@ def storefront(request, order_id=None):
     ))
     if request.path.startswith(("/control/", "/invoice/")):
         document = document.replace("</head>", '<meta name="robots" content="noindex, nofollow"></head>')
-    return HttpResponse(document)
+    return HttpResponse(document, status=404 if product_slug and not product else 200)

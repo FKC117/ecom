@@ -127,7 +127,7 @@ def homepage_labels():
         "search_placeholder": "Find a little something…", "search_label": "Search by name or collection",
         "search_empty": "No pieces found. Try another search.", "search_results": "Your discoveries",
         "all_collections": "All pieces", "view_piece": "Discover this piece", "close_details": "Close details",
-        "variants": "Choose your variant", "features": "Details & features", "material": "Material", "gemstone": "Gemstone",
+        "variants": "Choose your variant", "features": "Details & features", "material": "Base material", "gemstone": "Stones / embellishments",
         "size": "Size", "color": "Colour / finish", "care": "Care instructions", "sku": "SKU",
         "in_stock": "In stock", "sold_out": "Sold out", "backorder": "Available to order",
         "regular_price": "Regular price", "sale_price": "Your price", "from_price": "From", "gallery": "Product images",
@@ -353,9 +353,24 @@ class Pricing(CatalogRecord):
         return max(Decimal(0), price).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
 
 
-class Product(Pricing):
+class JewelleryDetails(models.Model):
+    plating = models.CharField('Plating / finish', max_length=150, blank=True)
+    stone_origin = models.CharField('Embellishment type', max_length=150, blank=True, help_text='For example kundan, glass stones, crystals or beads.')
+    stone_colour = models.CharField(max_length=100, blank=True)
+    dimensions = models.CharField(max_length=250, blank=True, help_text='Include units, for example pendant 20 × 12 mm or chain length 45 cm.')
+    weight_grams = models.DecimalField('Weight (g)', max_digits=10, decimal_places=3, null=True, blank=True, validators=[MinValueValidator(Decimal('0.001'))])
+    package_contents = models.CharField(max_length=250, blank=True, help_text='For example one ring, one pair of earrings or a three-piece set.')
+    closure = models.CharField('Clasp / closure', max_length=150, blank=True)
+    adjustable = models.BooleanField('Adjustable sizing', null=True, blank=True, default=None, help_text='Unknown/blank hides this detail. Variant blanks inherit the product value.')
+    warranty = models.TextField('Warranty / guarantee', max_length=1000, blank=True, help_text='Only enter terms that apply to this product. Blank variants inherit product details.')
+
+    class Meta:
+        abstract = True
+
+
+class Product(Pricing, JewelleryDetails):
     name = models.CharField(max_length=200)
-    slug = models.SlugField(unique=True)
+    slug = models.SlugField(unique=True, blank=True, help_text='Generated automatically from the product name. Existing URLs remain unchanged.')
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="products")
     collections = models.ManyToManyField(Collection,blank=True,related_name="products")
     subtitle = models.CharField(max_length=200, blank=True)
@@ -366,8 +381,10 @@ class Product(Pricing):
     badge = models.CharField(max_length=50, blank=True)
     sku = models.CharField('SKU', max_length=80, unique=True,default=product_sku_default)
     tags = models.ManyToManyField(ProductTag, blank=True, related_name='products')
-    material = models.CharField(max_length=150, blank=True)
-    gemstone = models.CharField(max_length=150, blank=True)
+    material = models.CharField('Base material', max_length=150, blank=True)
+    gemstone = models.CharField('Stones / embellishments', max_length=150, blank=True)
+    size = models.CharField(max_length=80, blank=True)
+    color = models.CharField('Colour', max_length=100, blank=True)
     care_instructions = models.TextField(blank=True)
     track_stock = models.BooleanField(default=True, help_text='When enabled, zero stock is shown as sold out. Cart items reserve stock until their expiry. Enable tracking before allowing purchases.')
     stock_quantity = models.PositiveIntegerField(default=0)
@@ -384,6 +401,8 @@ class Product(Pricing):
         return self.name
 
     def clean(self):
+        if not self.slug: self._generate_slug()
+        if not self.image_alt.strip(): self.image_alt=self.name[:250]
         self.sku = self.sku.strip() if self.sku else ''
         self.currency = self.currency.strip().upper()
         super().clean()
@@ -398,6 +417,27 @@ class Product(Pricing):
                 if source.discount_type == self.Discount.FIXED and variant.regular_price is not None and variant.regular_price < source.discount_value:
                     raise ValidationError({'price': 'A discount exceeds a variant price. Adjust the variant or its discount first.'})
 
+    def _generate_slug(self):
+        from django.utils.text import slugify
+        base=slugify(self.name)[:50].strip('-') or 'product'
+        candidate=base
+        number=2
+        while type(self).objects.filter(slug=candidate).exclude(pk=self.pk).exists():
+            suffix=f'-{number}'
+            candidate=base[:50-len(suffix)].rstrip('-')+suffix
+            number+=1
+        self.slug=candidate
+        self._automatic_slug=True
+
+    @transaction.atomic
+    def save(self,*args,**kwargs):
+        if not self.slug or getattr(self,'_automatic_slug',False):
+            from django.db import connection
+            with connection.cursor() as cursor: cursor.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',['sanjilas-product-slugs'])
+            self._generate_slug()
+        try: return super().save(*args,**kwargs)
+        finally: self._automatic_slug=False
+
     @property
     def availability(self):
         if not self.track_stock or self.stock_quantity > 0:
@@ -405,14 +445,15 @@ class Product(Pricing):
         return 'backorder' if self.allow_backorder else 'sold_out'
 
 
-class ProductVariant(Pricing):
+class ProductVariant(Pricing, JewelleryDetails):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='variants')
     name = models.CharField(max_length=150, help_text='Customer-facing name, e.g. Rose gold / Size 7.')
     sku = models.CharField('SKU', max_length=80, unique=True,default=variant_sku_default)
     size = models.CharField(max_length=80, blank=True)
     color = models.CharField('Colour / finish', max_length=100, blank=True)
-    material = models.CharField(max_length=150, blank=True)
-    gemstone = models.CharField(max_length=150, blank=True)
+    material = models.CharField('Base material', max_length=150, blank=True)
+    gemstone = models.CharField('Stones / embellishments', max_length=150, blank=True)
+    care_instructions = models.TextField(blank=True, help_text='Leave blank to use product care instructions.')
     tags = models.ManyToManyField(ProductTag, blank=True, related_name='variants')
     override_discount = models.BooleanField(default=False, help_text='Otherwise use the parent product discount. Leave price blank to use its regular price.')
     image = WebPImageField(upload_to='variants/', blank=True)
@@ -482,12 +523,24 @@ class ProductFeature(CatalogRecord):
 class ProductImage(CatalogRecord):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='gallery')
     image = WebPImageField(upload_to='products/gallery/')
-    image_alt = models.CharField(max_length=250)
+    image_alt = models.CharField(max_length=250, blank=True, help_text='Automatic: product name followed by an image number. Leave blank to generate it.')
     position = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
 
     class Meta:
         ordering = ('position', 'pk')
+
+    @transaction.atomic
+    def save(self,*args,**kwargs):
+        if self.product_id and not self.image_alt.strip():
+            product=Product.objects.select_for_update().get(pk=self.product_id)
+            number=1
+            prefix=product.name[:230].rstrip()
+            existing=set(type(self).objects.filter(product_id=self.product_id).exclude(pk=self.pk).values_list('image_alt',flat=True))
+            while f'{prefix} {number}' in existing: number+=1
+            self.image_alt=f'{prefix} {number}'
+            if kwargs.get('update_fields') is not None: kwargs['update_fields']=set(kwargs['update_fields'])|{'image_alt'}
+        return super().save(*args,**kwargs)
 
     def __str__(self):
         return f'{self.product} / {self.image_alt}'

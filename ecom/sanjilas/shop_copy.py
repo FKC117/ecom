@@ -4,6 +4,18 @@ from .protection_copy import customer_copy
 def shop_labels():
     return {
         **customer_copy(),
+        'gallery_previous':'Previous image', 'gallery_next':'Next image',
+        'detail_plating':'Plating / finish',
+        'detail_stone_origin':'Embellishment type', 'detail_stone_colour':'Stone / bead colour',
+        'detail_color':'Colour', 'detail_dimensions':'Measurements', 'detail_weight_grams':'Weight',
+        'detail_package_contents':'Package contents', 'detail_closure':'Clasp / closure',
+        'detail_adjustable':'Adjustable sizing', 'detail_warranty':'Warranty / guarantee',
+        'detail_yes':'Yes', 'detail_no':'No', 'weight_unit':'g',
+        'product_home':'Home', 'breadcrumbs':'Breadcrumb navigation',
+        'similar_products':'You may also like', 'product_zoom':'View larger image',
+        'product_delivery':'Delivery & returns',
+        'product_delivery_note':'Delivery charges are added at checkout based on your delivery area.',
+        'product_not_found':'This piece is no longer available.',
         'purchase_price_missing': 'This piece is available by enquiry. Contact us for its price before ordering.',
         'not_for_sale': 'Available by enquiry',
         'cart': 'Your bag', 'cart_open': 'Open shopping bag', 'cart_close': 'Close shopping bag',

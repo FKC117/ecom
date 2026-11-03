@@ -43,6 +43,7 @@ function Modal({ open, onClose, label, closeLabel, children, className = '' }) {
 }
 
 export default function Home() {
+  const productSlug = window.location.pathname.match(/^\/products\/([^/]+)\/?$/)?.[1]
   const shop = useShop()
   const [bagOpen,setBagOpen] = useState(()=>new URLSearchParams(window.location.search).get('bag')==='1')
   const [data, setData] = useState(null)
@@ -53,8 +54,14 @@ export default function Home() {
   const [search, setSearch] = useState(false)
   const [query, setQuery] = useState('')
   const [collection, setCollection] = useState(null)
-  const [category,setCategory]=useState(null)
-  const [selectedId, setSelectedId] = useState(null)
+  const [category,setCategory]=useState(()=>Number(new URLSearchParams(window.location.search).get('category'))||null)
+  const [searchCatalog,setSearchCatalog] = useState(null)
+  useEffect(()=>{
+    if(!search||!productSlug)return
+    const controller=new AbortController()
+    fetch('/api/home/',{signal:controller.signal}).then(response=>{if(!response.ok)throw new Error();return response.json()}).then(result=>setSearchCatalog(result.products)).catch(error=>{if(error.name!=='AbortError')setSearchCatalog([])})
+    return()=>controller.abort()
+  },[search,productSlug])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -62,8 +69,8 @@ export default function Home() {
     const refresh = () => {
       if (pending || document.visibilityState === 'hidden') return
       pending = true
-      fetch('/api/home/', { signal: controller.signal, cache: 'no-store' })
-      .then((response) => { if (!response.ok) throw new Error(response.status); return response.json() })
+      fetch(productSlug?`/api/shop/products/${encodeURIComponent(productSlug)}/`:'/api/home/', { signal: controller.signal, cache: 'no-store' })
+      .then((response) => { if (!response.ok&&response.status!==404) throw new Error(response.status); return response.json() })
       .then((result) => {
         applyBranding(result.site)
         let saved
@@ -81,7 +88,7 @@ export default function Home() {
     document.addEventListener('visibilitychange', refresh)
     window.addEventListener('storage', changed)
     return () => { controller.abort(); window.removeEventListener('focus', refresh); window.removeEventListener('pageshow', refresh); document.removeEventListener('visibilitychange', refresh); window.removeEventListener('storage', changed) }
-  }, [attempt])
+  }, [attempt,productSlug])
 
   useEffect(() => {
     if (!data || !mode) return
@@ -100,10 +107,10 @@ export default function Home() {
   </main>
 
   const { site, page, categories, collections, products } = data
-  const selected = products.find((product) => product.id === selectedId) || null
   const l = page.labels
   const featured = products.filter((product)=>(!category||product.category===category)&&(!collection||product.collections.includes(collection))&&((category||collection)||product.is_featured))
-  const results = query.trim() ? products.filter((product) => `${product.name} ${product.subtitle} ${categories.find((item) => item.id === product.category)?.name || ''} ${collections.filter((item)=>product.collections.includes(item.id)).map((item)=>item.name).join(' ')} ${product.sku||''}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) : products
+  const searchableProducts=productSlug?(searchCatalog||[]):products
+  const results = query.trim() ? searchableProducts.filter((product) => `${product.name} ${product.subtitle} ${categories.find((item) => item.id === product.category)?.name || ''} ${collections.filter((item)=>product.collections.includes(item.id)).map((item)=>item.name).join(' ')} ${product.sku||''}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) : searchableProducts
   const logo = mode === 'dark' && site.logo_dark ? site.logo_dark : site.logo
   const chooseCategory = (id) => {
     setCategory(id)
@@ -112,14 +119,14 @@ export default function Home() {
     document.getElementById('jewellery')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
   const navigation = [
-    ['#collections', l.nav_categories], ['#jewellery', l.nav_featured], ['#story', l.nav_story],
+    [`${productSlug?'/':''}#collections`, l.nav_categories], [`${productSlug?'/':''}#jewellery`, l.nav_featured], [`${productSlug?'/':''}#story`, l.nav_story],
   ]
 
   return <>
     <a className="skip-link" href="#main">{l.skip_content}</a>
     {page.announcement && <div className="announcement"><Icon name="sparkle" /><p>{page.announcement}</p><Icon name="sparkle" /></div>}
     <header className="site-header" id="top">
-      <a className="brand" href="#top" aria-label={site.site_name}>
+      <a className="brand" href={productSlug?'/':'#top'} aria-label={site.site_name}>
         {logo ? <ResponsiveImage className="brand-logo" src={logo} media={mode === 'dark' && site.logo_dark ? site.logo_dark_media : site.logo_media} sizes="190px" alt={site.logo_alt || site.site_name} /> : <><span className="brand-mark" aria-hidden="true">✳</span><span>{site.site_name}</span></>}
       </a>
       <nav className={`main-nav ${menu ? 'is-open' : ''}`} aria-label={l.navigation}>
@@ -130,12 +137,25 @@ export default function Home() {
         <a className="store-login-link" href="/login/">{l.nav_login}</a>
         <button className="icon-button" onClick={() => setSearch(true)} aria-label={l.search_open}><Icon name="search" /></button>
         <button className="icon-button theme-toggle" onClick={toggleMode} aria-label={mode === 'dark' ? l.mode_light : l.mode_dark} title={mode === 'dark' ? l.mode_light : l.mode_dark} aria-pressed={mode === 'dark'}><Icon name={mode === 'dark' ? 'sun' : 'moon'} /></button>
-        <a className="header-contact" href="#contact">{l.nav_contact}<Icon name="arrow" /></a>
+        <a className="header-contact" href={productSlug?'/#contact':'#contact'}>{l.nav_contact}<Icon name="arrow" /></a>
         <button className="icon-button mobile-menu" onClick={() => setMenu(!menu)} aria-label={menu ? l.menu_close : l.menu_open} aria-expanded={menu}><Icon name={menu ? 'close' : 'menu'} /></button>
       </div>
     </header>
 
     <main id="main">
+      {productSlug?<section className="section product-page">
+        <nav className="product-breadcrumbs" aria-label={l.breadcrumbs}><a href="/">{l.product_home}</a><span aria-hidden="true">/</span>{data.product&&<><a href={`/?category=${data.product.category}#jewellery`}>{categories.find(item=>item.id===data.product.category)?.name}</a><span aria-hidden="true">/</span><span aria-current="page">{data.product.name}</span></>}</nav>
+        {data.product?<>
+          <ProductDetail key={data.product.id} standalone product={data.product} categories={categories} site={site} labels={l} onAdd={async(variant,quantity)=>{
+            const cart=await shop.refresh()
+            if(!cart.authenticated){setBagOpen(true);return}
+            const existing=cart.items.find(item=>item.product_id===data.product.id&&item.variant_id===(variant?.id||null)&&!item.expired)
+            try{await shop.mutate('cart/items/',{product_id:data.product.id,variant_id:variant?.id,quantity:(existing?.quantity||0)+quantity});setBagOpen(true)}finally{setAttempt(value=>value+1)}
+          }}/>
+          <section className="product-delivery"><div><h2>{l.product_delivery}</h2><p>{l.product_delivery_note}</p><dl><div><dt>{l.delivery_inside}</dt><dd>{site.shop_currency} {site.delivery_inside_dhaka}</dd></div><div><dt>{l.delivery_outside}</dt><dd>{site.shop_currency} {site.delivery_outside_dhaka}</dd></div></dl></div>{site.invoice_terms&&<div><h2>{site.invoice_terms_heading}</h2><ul>{site.invoice_terms.split('\n').filter(Boolean).map((line,index)=><li key={index}>{line}</li>)}</ul></div>}</section>
+          {products.length>0&&<section className="similar-products"><h2>{l.similar_products}</h2><div className="product-grid">{products.map(product=><a className="product-card" href={`/products/${product.slug}/`} key={product.id}><div className="product-image">{product.image&&<ResponsiveImage src={product.image} media={product.image_media} sizes="(max-width: 760px) 50vw, 25vw" alt={product.image_alt||product.name} loading="lazy"/>}</div><div className="product-copy"><h3>{product.name}</h3><p>{product.subtitle}</p><Price item={product} labels={l} range/></div></a>)}</div></section>}
+        </>:<div className="product-missing"><h1>{l.product_not_found}</h1><a className="button button-primary" href="/#jewellery">{l.continue_shopping}</a></div>}
+      </section>:<>
       <section className="hero" aria-labelledby="hero-title">
         <div className="hero-copy">
           <div className="eyebrow"><span className="small-line" />{page.hero_eyebrow}</div>
@@ -170,10 +190,10 @@ export default function Home() {
         </div>
         {collections.length>0&&<div className="collection-filters" aria-label={l.nav_collections}><button className={collection===null?'active':''} aria-pressed={collection===null} onClick={()=>setCollection(null)}>{l.all_collections}</button>{collections.map((item)=><button key={item.id} className={collection===item.id?'active':''} aria-pressed={collection===item.id} onClick={()=>setCollection(item.id)}>{item.name}</button>)}</div>}
         <div className="product-grid">
-          {featured.map((product) => <button className="product-card" key={product.id} onClick={() => setSelectedId(product.id)} aria-label={`${l.view_piece}: ${product.name}`}>
+          {featured.map((product) => <a className="product-card" key={product.id} href={`/products/${product.slug}/`} aria-label={`${l.view_piece}: ${product.name}`}>
             <div className="product-image">{product.image && <ResponsiveImage src={product.image} media={product.image_media} sizes="(max-width: 760px) 50vw, 25vw" alt={product.image_alt || product.name} loading="lazy" />}{product.badge && <span className="product-badge">{product.badge}</span>}<span className="product-discover"><Icon name="arrow" /></span></div>
             <div className="product-copy"><h3>{product.name}</h3><p>{product.subtitle}</p><span className="product-price"><Price item={product} labels={l} range /></span></div>
-          </button>)}
+          </a>)}
         </div>
         {!featured.length && <p className="empty-state">{l.collection_empty}</p>}
       </section>
@@ -187,6 +207,7 @@ export default function Home() {
         <Icon className="contact-sparkle" name="sparkle" /><p className="eyebrow">{page.contact_eyebrow}</p><h2 id="contact-title">{page.contact_title}</h2><p className="contact-body">{page.contact_body}</p>
         <a className="button button-primary" href={site.contact_email ? `mailto:${site.contact_email}` : '#jewellery'}>{site.contact_email ? l.nav_contact : page.contact_cta}<Icon name="arrow" /></a>
       </section>
+      </>}
     </main>
 
     <footer className="site-footer">
@@ -200,15 +221,7 @@ export default function Home() {
     <Modal open={bagOpen} onClose={()=>setBagOpen(false)} label={l.cart} closeLabel={l.cart_close} className="bag-dialog">{bagOpen&&<ShoppingBag shop={shop} labels={l} onChanged={()=>setAttempt((value)=>value+1)} onClose={()=>setBagOpen(false)} />}</Modal>
     <Modal open={search} onClose={() => setSearch(false)} label={l.search_open} closeLabel={l.search_close} className="search-dialog">
       <p className="eyebrow">{l.search_open}</p><h2>{l.search_results}</h2><label className="search-field"><span className="sr-only">{l.search_label}</span><Icon name="search" /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={l.search_placeholder} /></label>
-      <div className="search-results">{results.map((product) => <button key={product.id} onClick={() => { setSearch(false); setSelectedId(product.id) }}><ResponsiveImage src={product.image} media={product.image_media} sizes="65px" alt={product.image_alt || product.name} /><span><strong>{product.name}</strong><small>{priceText(product, l)}</small></span><Icon name="arrow" /></button>)}{!results.length && <p>{l.search_empty}</p>}</div>
-    </Modal>
-    <Modal open={!!selected} onClose={() => setSelectedId(null)} label={selected?.name} closeLabel={l.close_details} className="product-dialog">
-      {selected && <ProductDetail key={selected.id} product={selected} categories={categories} site={site} labels={l} onAdd={async(variant,quantity)=>{
-        if(!shop.cart?.authenticated){setSelectedId(null);setBagOpen(true);return}
-        const existing=shop.cart.items.find((item)=>item.product_id===selected.id&&item.variant_id===(variant?.id||null)&&!item.expired)
-        try {await shop.mutate('cart/items/',{product_id:selected.id,variant_id:variant?.id,quantity:(existing?.quantity||0)+quantity});setSelectedId(null);setBagOpen(true)}
-        finally {setAttempt((value)=>value+1)}
-      }} />}
+      <div className="search-results">{results.map((product) => <a key={product.id} href={`/products/${product.slug}/`}><ResponsiveImage src={product.image} media={product.image_media} sizes="65px" alt={product.image_alt || product.name} /><span><strong>{product.name}</strong><small>{priceText(product, l)}</small></span><Icon name="arrow" /></a>)}{!results.length && <p>{l.search_empty}</p>}</div>
     </Modal>
   </>
 }

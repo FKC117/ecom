@@ -70,20 +70,27 @@ class CollectionAdmin(CategoryAdmin):
 
 @admin.register(Product)
 class ProductAdmin(ImportExportModelAdmin):
+    def get_form(self,request,obj=None,**kwargs):
+        form=super().get_form(request,obj,**kwargs)
+        if 'image' in form.base_fields: form.base_fields['image'].label='Cover image'
+        if 'image_alt' in form.base_fields: form.base_fields['image_alt'].label='Cover image alt text'
+        return form
+
     list_display = ("name", "sku", "category", "price", "discounted_price", "currency", "is_featured", "is_active")
     list_filter = ("category", "collections", "is_active", "is_featured")
     search_fields = ("name", "description", "sku")
-    readonly_fields = ("discounted_price",)
+    readonly_fields = ("discounted_price", "slug")
     fieldsets = (
         ('Product', {'fields': ('name', 'slug', 'category', 'collections', 'sku', 'subtitle', 'description')}),
         ('Pricing & discount', {'fields': ('price', 'currency', 'discount_type', 'discount_value', 'discounted_price')}),
-        ('Details & tagging', {'fields': ('material', 'gemstone', 'care_instructions', 'tags')}),
-        ('Images', {'fields': ('image', 'image_alt')}),
+        ('Materials & embellishments', {'fields': ('material', 'plating', 'gemstone', 'stone_origin', 'stone_colour', 'color')}),
+        ('Measurements & construction', {'fields': ('size', 'dimensions', 'weight_grams', 'adjustable', 'closure', 'package_contents')}),
+        ('Care, warranty & tagging', {'fields': ('care_instructions', 'warranty', 'tags')}),
+        ('Cover image', {'fields': ('image', 'image_alt')}),
         ('Stock', {'fields': ('track_stock', 'stock_quantity', 'allow_backorder')}),
         ('Storefront', {'fields': ('badge', 'position', 'is_active', 'is_featured')}),
     )
     formfield_overrides = {models.ManyToManyField: {"widget": forms.CheckboxSelectMultiple}}
-    prepopulated_fields = {"slug": ("name",)}
 
 
 @admin.register(ProductVariant)
@@ -96,6 +103,7 @@ class ProductVariantAdmin(ImportExportModelAdmin):
     readonly_fields = ('regular_price', 'discounted_price')
     fieldsets = (
         ('Variant', {'fields': ('product', 'name', 'sku', 'size', 'color', 'material', 'gemstone', 'tags')}),
+        ('Jewellery details (blank inherits product)', {'fields': ('plating', 'stone_origin', 'stone_colour', 'dimensions', 'weight_grams', 'adjustable', 'closure', 'package_contents', 'warranty', 'care_instructions')}),
         ('Pricing & discount', {'fields': ('price', 'regular_price', 'override_discount', 'discount_type', 'discount_value', 'discounted_price')}),
         ('Image', {'fields': ('image', 'image_alt')}),
         ('Stock & visibility', {'fields': ('track_stock', 'stock_quantity', 'allow_backorder', 'position', 'is_active')}),
@@ -121,6 +129,18 @@ class ProductFeatureAdmin(ImportExportModelAdmin):
 
 @admin.register(ProductImage)
 class ProductImageAdmin(ImportExportModelAdmin):
+    def get_changeform_initial_data(self,request):
+        initial=super().get_changeform_initial_data(request)
+        product=initial.get('product')
+        if product and str(product).isdecimal():
+            last=self.get_queryset(request).filter(product_id=product).aggregate(value=models.Max('position'))['value']
+            initial.setdefault('position',0 if last is None else last+1)
+        return initial
+
+    control_gallery = True
+    control_group = 'Cover image'
+    control_image_field = 'image'
+    control_add_label = 'gallery_add'
     control_menu = False
     control_parent_field = "product"
     list_display = ('product', 'image_alt', 'position', 'is_active')

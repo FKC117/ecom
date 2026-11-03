@@ -85,6 +85,14 @@ function DeleteDialog({ data, labels: l, onCancel, onConfirm, busy, error }) {
   </dialog>
 }
 
+function RelatedSection({related,recordId,labels:l,navigate,onDelete}) {
+  return <section className={`control-form-section ${related.gallery?'control-gallery-section':''}`}><div className="control-section-title"><h2>{related.name}</h2>{related.can_add&&<button type="button" className="control-button" onClick={()=>navigate(`/${related.key}/new?${encodeURIComponent(related.field)}=${encodeURIComponent(recordId)}`)}>{l[related.add_label]||l.add} →</button>}</div>
+    {related.gallery&&<p className="control-muted">{recordId?l.gallery_help:l.gallery_save_first}</p>}
+    <div className={related.gallery?'control-gallery-grid':'catalog-related-records'}>{related.records.map(record=>related.gallery?<article className="control-gallery-card" key={record.id}>{record.image&&<img src={record.image} alt={record.alt} loading="lazy"/>}<p>{record.alt||record.label}</p><small>{l.gallery_position}: {record.position} · {record.active?l.gallery_visible:l.gallery_hidden}</small><div className="control-toolbar"><button type="button" className="control-button" onClick={()=>navigate(`/${related.key}/${encodeURIComponent(record.id)}`)}>{record.permissions.change?l.edit:l.view}</button>{record.permissions.delete&&<button type="button" className="control-button danger-outline" onClick={()=>onDelete(related,record)}>{l.delete}</button>}</div></article>:<button type="button" className="control-record-link" key={record.id} onClick={()=>navigate(`/${related.key}/${encodeURIComponent(record.id)}`)}>{record.label} ↗</button>)}</div>
+    {related.gallery&&recordId&&related.records.length===0&&<p className="control-muted">{l.gallery_empty}</p>}
+  </section>
+}
+
 function Editor({ model, recordId, initialQuery, labels: l, navigate, setDirty, onSaved, onAuthError }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
@@ -101,6 +109,7 @@ function Editor({ model, recordId, initialQuery, labels: l, navigate, setDirty, 
   const returnPath = model.parent_model && parentValue ? `/${model.parent_model}/${encodeURIComponent(parentValue)}` : model.parent_model ? `/${model.parent_model}` : model.permissions.view ? `/${model.key}` : ''
   const submit = async (event) => {
     event.preventDefault()
+    const addAnother=event.nativeEvent.submitter?.value==='add_another'
     setBusy(true)
     setError(null)
     setFieldErrors({})
@@ -108,7 +117,12 @@ function Editor({ model, recordId, initialQuery, labels: l, navigate, setDirty, 
       const body = new FormData(event.currentTarget)
       const result = await controlRequest(endpoint, {method:'POST', body})
       const parent = model.parent_field && body.get(model.parent_field)
-      await onSaved(result.message, parent ? `/${model.parent_model}/${encodeURIComponent(parent)}` : returnPath)
+      if(addAnother&&model.repeat_add&&model.permissions.add&&parent){
+        await onSaved(result.message,`/${model.key}/new?${encodeURIComponent(model.parent_field)}=${encodeURIComponent(parent)}&after=${encodeURIComponent(result.id)}`)
+        return
+      }
+      const galleryPath=!recordId&&data.related?.some(related=>related.gallery)?`/${model.key}/${encodeURIComponent(result.id)}`:returnPath
+      await onSaved(result.message, parent ? `/${model.parent_model}/${encodeURIComponent(parent)}` : galleryPath)
     } catch (failure) {setError(failure); setFieldErrors(failure.fields || {}); onAuthError(failure)}
     finally {setBusy(false)}
   }
@@ -120,12 +134,17 @@ function Editor({ model, recordId, initialQuery, labels: l, navigate, setDirty, 
     setBusy(true)
     try {
       const form = new FormData(); form.set('confirm','yes')
-      const result = await controlRequest(modelPath(model, `${encodeURIComponent(recordId)}/delete/`), {method:'POST',body:form})
+      const result = await controlRequest(deletion.target||modelPath(model, `${encodeURIComponent(recordId)}/delete/`), {method:'POST',body:form})
+      if(deletion.target){setData(current=>({...current,related:current.related.map(group=>group.key===deletion.relatedKey?{...group,records:group.records.filter(record=>record.id!==deletion.recordId)}:group)}));setDeletion(null);return}
       setDeletion(null)
       await onSaved(result.message, returnPath)
     } catch (failure) {setError(failure); onAuthError(failure)}
     finally {setBusy(false)}
   }
+  const deleteRelated=async(related,record)=>{
+    try{const target=`models/${related.key.replace('.','/')}/${encodeURIComponent(record.id)}/delete/`;setDeletion({...await controlRequest(target),target,relatedKey:related.key,recordId:record.id});setError(null)}catch(failure){setError(failure);onAuthError(failure)}
+  }
+  const renderRelated=related=><RelatedSection key={related.key} related={related} recordId={recordId} labels={l} navigate={navigate} onDelete={deleteRelated}/>
   if (!data) return <><button className="control-back" onClick={() => navigate(`/${model.key}`)}>← {l.back}</button><ErrorMessage error={error} labels={l} />{!error && <p className="control-empty" role="status">{l.loading}</p>}</>
   const editable = (recordId ? data.permissions.change : data.permissions.add) && !data.advanced
   return <>
@@ -135,14 +154,14 @@ function Editor({ model, recordId, initialQuery, labels: l, navigate, setDirty, 
     {model.app === 'auth' && !editable && <p className="control-info">{l.access_management}</p>}
     {data.advanced && <div className="control-info">{l.advanced_form} <a href={data.django_url} target="_blank" rel="noreferrer">{l.open_django} ↗</a></div>}
     <form className="control-editor" onSubmit={submit} onChange={() => {if(editable) setDirty(true)}}>
-      {data.groups.map((group,index) => <section className="control-form-section" key={index}>{group.title && <h2>{group.title}</h2>}<div className="control-field-grid">{group.fields.map((name) => {
+      {data.groups.map((group,index) => <div key={index}><section className="control-form-section">{group.title && <h2>{group.title}</h2>}<div className="control-field-grid">{group.fields.map((name) => {
         const field = data.fields.find((item) => item.name === name)
         const readonly = data.readonly.find((item) => item.name === name)
         return field ? <Field key={name} field={field} labels={l} model={model} recordId={recordId} editable={editable && !busy} errors={fieldErrors[name]} onDirty={()=>setDirty(true)} /> : readonly ? <div className="control-field" key={name}><label>{readonly.label}</label><p className="control-readonly"><DataValue value={readonly.value} labels={l} /></p><small className="control-muted">{l.read_only}</small></div> : null
-      })}</div></section>)}
-      {editable && <div className="control-savebar"><span className="control-muted">{model.name}</span><div className="control-toolbar"><button className="control-button" type="button" onClick={() => navigate(returnPath)} disabled={busy}>{l.cancel}</button><button className="control-button primary" type="submit" disabled={busy}>{busy ? l.loading : l.save} →</button></div></div>}
+      })}</div></section>{data.related?.filter(related=>related.group===group.title).map(renderRelated)}</div>)}
+      {editable && <div className="control-savebar"><span className="control-muted">{model.name}</span><div className="control-toolbar"><button className="control-button" type="button" onClick={() => navigate(returnPath)} disabled={busy}>{l.cancel}</button>{model.repeat_add&&model.permissions.add&&<button className="control-button" type="submit" name="action" value="add_another" disabled={busy}>{busy?l.loading:l.gallery_save_another}</button>}<button className="control-button primary" type="submit" disabled={busy}>{busy ? l.loading : l.save} →</button></div></div>}
     </form>
-    {data.related?.map((related) => <section className="control-form-section" key={related.key}><div className="control-section-title"><h2>{related.name}</h2>{related.can_add && <button type="button" className="control-button" onClick={() => navigate(`/${related.key}/new?${encodeURIComponent(related.field)}=${encodeURIComponent(recordId)}`)}>{l.add} →</button>}</div><div className="catalog-related-records">{related.records.map((record) => <button type="button" className="control-record-link" key={record.id} onClick={() => navigate(`/${related.key}/${encodeURIComponent(record.id)}`)}>{record.label} ↗</button>)}</div></section>)}
+    {data.related?.filter(related=>!related.group).map(renderRelated)}
     {deletion && <DeleteDialog data={deletion} labels={l} onCancel={() => setDeletion(null)} onConfirm={confirmDelete} busy={busy} error={error} />}
   </>
 }

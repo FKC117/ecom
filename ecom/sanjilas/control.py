@@ -106,6 +106,7 @@ def descriptor(model_admin, request):
     return {
         "workspace": getattr(model_admin, "control_workspace", None),
         "menu_visible": getattr(model_admin, 'control_menu', True),
+        "repeat_add": getattr(model_admin,'control_gallery',False),
         "parent_field": getattr(model_admin, 'control_parent_field', None),
         "parent_model": model_admin.model._meta.get_field(model_admin.control_parent_field).related_model._meta.label_lower if getattr(model_admin, 'control_parent_field', None) else None,
         "key": opts.label_lower, "app": opts.app_label, "model": opts.model_name,
@@ -346,6 +347,7 @@ def record_form(request, app_label, model_name, pk=None):
         return JsonResponse({"id": str(saved.pk), "message": labels()["saved"]})
     form = form_class(instance=obj)
     if obj is None:
+        if getattr(ma,'control_gallery',False): form.initial.update(ma.get_changeform_initial_data(request))
         for name, field in form.fields.items():
             if isinstance(field, forms.ModelChoiceField) and request.GET.get(name):
                 try:
@@ -354,18 +356,31 @@ def record_form(request, app_label, model_name, pk=None):
                     pass
     schema = form_schema(form, ma, request, obj)
     related = []
-    if obj is not None:
+    if obj is not None or any(getattr(admin.site._registry.get(relation.related_model),'control_gallery',False) for relation in ma.model._meta.related_objects):
         for relation in ma.model._meta.related_objects:
             if not relation.one_to_many or relation.related_model not in admin.site._registry:
                 continue
             child_admin = admin.site._registry[relation.related_model]
+            gallery = getattr(child_admin,'control_gallery',False)
+            if obj is None and not gallery: continue
             child = descriptor(child_admin, request)
             if not child:
                 continue
-            queryset = child_admin.get_queryset(request).filter(**{relation.field.name: obj})
-            related.append({'key': child['key'], 'name': child['name_plural'], 'field': relation.field.name,
-                            'can_add': child['permissions']['add'],
-                            'records': [{'id': str(record.pk), 'label': str(record)} for record in queryset[:30] if permissions(child_admin, request, record)['view']] if child['permissions']['view'] else []})
+            queryset = child_admin.get_queryset(request).filter(**{relation.field.name: obj}) if obj is not None else child_admin.get_queryset(request).none()
+            records = []
+            if child['permissions']['view']:
+                for record in queryset[:100 if gallery else 30]:
+                    p_child = permissions(child_admin,request,record)
+                    if not p_child['view']: continue
+                    row={'id':str(record.pk),'label':str(record),'permissions':p_child}
+                    if gallery:
+                        image=getattr(record,child_admin.control_image_field)
+                        row.update(image=image.url if image else '',alt=record.image_alt,position=record.position,active=record.is_active)
+                    records.append(row)
+            related.append({'key': child['key'], 'name': labels()['gallery_title'] if gallery else child['name_plural'], 'field': relation.field.name,
+                            'gallery':gallery,'group':getattr(child_admin,'control_group',None),
+                            'add_label':getattr(child_admin,'control_add_label','add'),
+                            'can_add': obj is not None and child['permissions']['add'],'records':records})
     schema['related'] = related
     return JsonResponse({"model": descriptor(ma, request), "id": str(obj.pk) if obj else None, "label": str(obj) if obj else "", "permissions": p, "django_url": admin_url(ma, "change", obj) if obj else admin_url(ma, "add"), **schema})
 

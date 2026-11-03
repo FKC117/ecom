@@ -26,6 +26,7 @@ urlpatterns = [
     path("llms.txt", views.llms, name="llms-txt"),
     path("llms-full.txt", views.llms, {"full": True}, name="llms-full-txt"),
     path("", views.storefront, name="storefront"),
+    path("products/<slug:product_slug>/", views.storefront, name="product"),
     path("login/", views.storefront, name="login"),
     path("account/", views.storefront, name="account"),
     path("invoice/<uuid:order_id>/", views.storefront, name="invoice"),
