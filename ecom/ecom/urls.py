@@ -19,13 +19,21 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from sanjilas import views
+from sanjilas import seo
 
 urlpatterns = [
+    path("sitemap.xml", seo.sitemap_index, name="sitemap"),
+    path("sitemap/", views.storefront, name="sitemap-html"),
+    path("sitemap-<int:number>.xml", seo.sitemap_page, name="sitemap-page"),
+    path("robots.txt", seo.robots, name="robots"),
     path("admin/", admin.site.urls),
     path("api/", include("sanjilas.urls")),
     path("llms.txt", views.llms, name="llms-txt"),
     path("llms-full.txt", views.llms, {"full": True}, name="llms-full-txt"),
     path("", views.storefront, name="storefront"),
+    path('shop/',views.storefront,{'listing_kind':'shop'},name='catalog'),
+    path('categories/<slug:listing_slug>/',views.storefront,{'listing_kind':'categories'},name='category'),
+    path('collections/<slug:listing_slug>/',views.storefront,{'listing_kind':'collections'},name='collection'),
     path("products/<slug:product_slug>/", views.storefront, name="product"),
     path("login/", views.storefront, name="login"),
     path("account/", views.storefront, name="account"),

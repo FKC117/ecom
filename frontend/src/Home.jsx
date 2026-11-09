@@ -5,6 +5,7 @@ import ProductDetail, { Price } from './ProductDetail'
 import { priceText } from './catalogPricing'
 import useShop from './useShop'
 import ShoppingBag from './ShoppingBag'
+import CatalogPage from './CatalogPage'
 
 const bootstrap = (() => {
   try { return JSON.parse(document.getElementById('storefront-bootstrap')?.textContent || '{}') } catch { return {} }
@@ -43,6 +44,10 @@ function Modal({ open, onClose, label, closeLabel, children, className = '' }) {
 }
 
 export default function Home() {
+  const sitemapPage = window.location.pathname.replace(/\/$/, '') === '/sitemap'
+  const listingMatch=window.location.pathname.match(/^\/(categories|collections)\/([^/]+)\/?$/)
+  const listingPage=!!listingMatch||window.location.pathname.replace(/\/$/,'')==='/shop'
+  const listingEndpoint=listingMatch?`/api/shop/${listingMatch[1]}/${encodeURIComponent(listingMatch[2])}/`:'/api/shop/catalog/'
   const productSlug = window.location.pathname.match(/^\/products\/([^/]+)\/?$/)?.[1]
   const shop = useShop()
   const [bagOpen,setBagOpen] = useState(()=>new URLSearchParams(window.location.search).get('bag')==='1')
@@ -53,15 +58,35 @@ export default function Home() {
   const [menu, setMenu] = useState(false)
   const [search, setSearch] = useState(false)
   const [query, setQuery] = useState('')
-  const [collection, setCollection] = useState(null)
-  const [category,setCategory]=useState(()=>Number(new URLSearchParams(window.location.search).get('category'))||null)
   const [searchCatalog,setSearchCatalog] = useState(null)
+  const contentReady=data!==null
   useEffect(()=>{
-    if(!search||!productSlug)return
+    if(!contentReady)return
+    let frame
+    const restoreAnchor=()=>{
+      cancelAnimationFrame(frame)
+      frame=requestAnimationFrame(()=>{
+        let id
+        try{id=decodeURIComponent(window.location.hash.slice(1))}catch{return}
+        if(!id&&!productSlug&&new URLSearchParams(window.location.search).has('category'))id='jewellery'
+        if(id)document.getElementById(id)?.scrollIntoView({block:'start',behavior:'instant'})
+      })
+    }
+    const restoreNavigation=()=>{
+      restoreAnchor()
+    }
+    restoreAnchor()
+    window.addEventListener('hashchange',restoreAnchor)
+    window.addEventListener('popstate',restoreNavigation)
+    return()=>{cancelAnimationFrame(frame);window.removeEventListener('hashchange',restoreAnchor);window.removeEventListener('popstate',restoreNavigation)}
+  },[contentReady,productSlug])
+  useEffect(()=>{
+    if(!search)return
     const controller=new AbortController()
-    fetch('/api/home/',{signal:controller.signal}).then(response=>{if(!response.ok)throw new Error();return response.json()}).then(result=>setSearchCatalog(result.products)).catch(error=>{if(error.name!=='AbortError')setSearchCatalog([])})
-    return()=>controller.abort()
-  },[search,productSlug])
+    const searchParams=new URLSearchParams({q:query})
+    const timer=setTimeout(()=>fetch(`/api/shop/catalog/?${searchParams}`,{signal:controller.signal}).then(response=>{if(!response.ok)throw new Error();return response.json()}).then(result=>setSearchCatalog(result.products)).catch(error=>{if(error.name!=='AbortError')setSearchCatalog([])}),250)
+    return()=>{clearTimeout(timer);controller.abort()}
+  },[search,query])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -69,9 +94,15 @@ export default function Home() {
     const refresh = () => {
       if (pending || document.visibilityState === 'hidden') return
       pending = true
-      fetch(productSlug?`/api/shop/products/${encodeURIComponent(productSlug)}/`:'/api/home/', { signal: controller.signal, cache: 'no-store' })
-      .then((response) => { if (!response.ok&&response.status!==404) throw new Error(response.status); return response.json() })
+      fetch(listingPage?`${listingEndpoint}${window.location.search}`:productSlug?`/api/shop/products/${encodeURIComponent(productSlug)}/`:sitemapPage?`/api/home/?directory=1&${new URLSearchParams(window.location.search)}`:'/api/home/', { signal: controller.signal, cache: 'no-store' })
+      .then((response) => { if (!response.ok&&response.status!==404&&!(listingPage&&response.status===400)) throw new Error(response.status); return response.json() })
       .then((result) => {
+        if(!productSlug&&!listingPage&&!sitemapPage){
+          const params=new URLSearchParams(window.location.search)
+          const oldCategory=result.categories.find(item=>String(item.id)===params.get('category'))
+          const oldCollection=result.collections.find(item=>String(item.id)===params.get('collection'))
+          if(oldCategory||oldCollection){window.location.replace(oldCategory?`/categories/${oldCategory.slug}/`:`/collections/${oldCollection.slug}/`);return}
+        }
         applyBranding(result.site)
         let saved
         try { saved = localStorage.getItem('storefront-color-mode') } catch { /* Storage may be disabled. */ }
@@ -88,7 +119,7 @@ export default function Home() {
     document.addEventListener('visibilitychange', refresh)
     window.addEventListener('storage', changed)
     return () => { controller.abort(); window.removeEventListener('focus', refresh); window.removeEventListener('pageshow', refresh); document.removeEventListener('visibilitychange', refresh); window.removeEventListener('storage', changed) }
-  }, [attempt,productSlug])
+  }, [attempt,productSlug,listingPage,listingEndpoint,sitemapPage])
 
   useEffect(() => {
     if (!data || !mode) return
@@ -108,25 +139,20 @@ export default function Home() {
 
   const { site, page, categories, collections, products } = data
   const l = page.labels
-  const featured = products.filter((product)=>(!category||product.category===category)&&(!collection||product.collections.includes(collection))&&((category||collection)||product.is_featured))
-  const searchableProducts=productSlug?(searchCatalog||[]):products
+  const featured = products
+  const searchableProducts=searchCatalog||[]
   const results = query.trim() ? searchableProducts.filter((product) => `${product.name} ${product.subtitle} ${categories.find((item) => item.id === product.category)?.name || ''} ${collections.filter((item)=>product.collections.includes(item.id)).map((item)=>item.name).join(' ')} ${product.sku||''}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) : searchableProducts
   const logo = mode === 'dark' && site.logo_dark ? site.logo_dark : site.logo
-  const chooseCategory = (id) => {
-    setCategory(id)
-    setCollection(null)
-    setMenu(false)
-    document.getElementById('jewellery')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
   const navigation = [
-    [`${productSlug?'/':''}#collections`, l.nav_categories], [`${productSlug?'/':''}#jewellery`, l.nav_featured], [`${productSlug?'/':''}#story`, l.nav_story],
+    ['/#collections', l.nav_categories], ['/shop/', l.nav_featured], ['/#story', l.nav_story],
   ]
+  const footerLinks=[...navigation,['/sitemap/',l.sitemap]]
 
   return <>
     <a className="skip-link" href="#main">{l.skip_content}</a>
     {page.announcement && <div className="announcement"><Icon name="sparkle" /><p>{page.announcement}</p><Icon name="sparkle" /></div>}
     <header className="site-header" id="top">
-      <a className="brand" href={productSlug?'/':'#top'} aria-label={site.site_name}>
+      <a className="brand" href={productSlug||sitemapPage||listingPage?'/':'#top'} aria-label={site.site_name}>
         {logo ? <ResponsiveImage className="brand-logo" src={logo} media={mode === 'dark' && site.logo_dark ? site.logo_dark_media : site.logo_media} sizes="190px" alt={site.logo_alt || site.site_name} /> : <><span className="brand-mark" aria-hidden="true">✳</span><span>{site.site_name}</span></>}
       </a>
       <nav className={`main-nav ${menu ? 'is-open' : ''}`} aria-label={l.navigation}>
@@ -137,14 +163,23 @@ export default function Home() {
         <a className="store-login-link" href="/login/">{l.nav_login}</a>
         <button className="icon-button" onClick={() => setSearch(true)} aria-label={l.search_open}><Icon name="search" /></button>
         <button className="icon-button theme-toggle" onClick={toggleMode} aria-label={mode === 'dark' ? l.mode_light : l.mode_dark} title={mode === 'dark' ? l.mode_light : l.mode_dark} aria-pressed={mode === 'dark'}><Icon name={mode === 'dark' ? 'sun' : 'moon'} /></button>
-        <a className="header-contact" href={productSlug?'/#contact':'#contact'}>{l.nav_contact}<Icon name="arrow" /></a>
+        <a className="header-contact" href={productSlug||sitemapPage||listingPage?'/#contact':'#contact'}>{l.nav_contact}<Icon name="arrow" /></a>
         <button className="icon-button mobile-menu" onClick={() => setMenu(!menu)} aria-label={menu ? l.menu_close : l.menu_open} aria-expanded={menu}><Icon name={menu ? 'close' : 'menu'} /></button>
       </div>
     </header>
 
     <main id="main">
-      {productSlug?<section className="section product-page">
-        <nav className="product-breadcrumbs" aria-label={l.breadcrumbs}><a href="/">{l.product_home}</a><span aria-hidden="true">/</span>{data.product&&<><a href={`/?category=${data.product.category}#jewellery`}>{categories.find(item=>item.id===data.product.category)?.name}</a><span aria-hidden="true">/</span><span aria-current="page">{data.product.name}</span></>}</nav>
+      {listingPage?<CatalogPage data={data}/>:sitemapPage?<section className="section sitemap-page" aria-labelledby="sitemap-title">
+        <div className="section-heading"><h1 id="sitemap-title">{l.sitemap}</h1></div>
+        <div className="sitemap-grid">
+          <section><h2>{l.footer_navigation}</h2><ul><li><a href="/">{l.product_home}</a></li>{navigation.map(([url,label])=><li key={url}><a href={url}>{label}</a></li>)}<li><a href="/#contact">{l.nav_contact}</a></li></ul></section>
+          <section><h2>{l.nav_categories}</h2><ul>{categories.map(item=><li key={item.id}><a href={`/categories/${item.slug}/`}>{item.name}</a></li>)}</ul></section>
+          {collections.length>0&&<section><h2>{l.nav_collections}</h2><ul>{collections.map(item=><li key={item.id}><a href={`/collections/${item.slug}/`}>{item.name}</a></li>)}</ul></section>}
+          <section><h2>{l.nav_featured}</h2><ul>{products.map(item=><li key={item.id}><a href={`/products/${item.slug}/`}>{item.name}</a></li>)}</ul>{!products.length&&<p>{l.collection_empty}</p>}</section>
+        </div>
+        {data.listing?.pages>1&&<nav className="listing-pagination" aria-label={l.catalog_pagination}>{data.listing.page>1&&<a href={`/sitemap/?page=${data.listing.page-1}`}>{l.catalog_previous}</a>}<span>{l.catalog_page.replace('{page}',data.listing.page).replace('{pages}',data.listing.pages)}</span>{data.listing.page<data.listing.pages&&<a href={`/sitemap/?page=${data.listing.page+1}`}>{l.catalog_next}</a>}</nav>}
+      </section>:productSlug?<section className="section product-page">
+        <nav className="product-breadcrumbs" aria-label={l.breadcrumbs}><a href="/">{l.product_home}</a><span aria-hidden="true">/</span>{data.product&&<><a href={`/categories/${categories.find(item=>item.id===data.product.category)?.slug}/`}>{categories.find(item=>item.id===data.product.category)?.name}</a><span aria-hidden="true">/</span><span aria-current="page">{data.product.name}</span></>}</nav>
         {data.product?<>
           <ProductDetail key={data.product.id} standalone product={data.product} categories={categories} site={site} labels={l} onAdd={async(variant,quantity)=>{
             const cart=await shop.refresh()
@@ -175,20 +210,20 @@ export default function Home() {
       <section className="section collections-section" id="collections" aria-labelledby="collections-title">
         <div className="section-heading"><p className="eyebrow">{page.collections_eyebrow}</p><h2 id="collections-title">{page.collections_title}</h2></div>
         <div className="collection-grid">
-          {categories.map((item, index) => <button className="collection-card" key={item.id} onClick={() => chooseCategory(item.id)}>
+          {categories.map((item, index) => <a className="collection-card" key={item.id} href={`/categories/${item.slug}/`}>
             <div className="collection-image">{item.image && <ResponsiveImage src={item.image} media={item.image_media} sizes="(max-width: 760px) 50vw, 25vw" alt={item.image_alt || item.name} loading="lazy" />}<span className="collection-number">{String(index + 1).padStart(2, '0')}</span></div>
             <div className="collection-caption"><div><h3>{item.name}</h3><p>{item.description}</p></div><span className="circle-arrow"><Icon name="arrow" /></span></div>
-          </button>)}
+          </a>)}
         </div>
       </section>
 
       <section className="section featured-section" id="jewellery" aria-labelledby="featured-title">
         <div className="featured-heading"><div><p className="eyebrow">{page.featured_eyebrow}</p><h2 id="featured-title">{page.featured_title}</h2></div><p>{page.featured_description}</p></div>
         <div className="collection-filters" aria-label={l.nav_categories}>
-          <button className={category === null ? 'active' : ''} aria-pressed={category === null} onClick={() => setCategory(null)}>{l.all_categories}</button>
-          {categories.map((item) => <button key={item.id} className={category === item.id ? 'active' : ''} aria-pressed={category === item.id} onClick={() => setCategory(item.id)}>{item.name}</button>)}
+          <a href="/shop/">{l.catalog_view_all}</a>
+          {categories.map((item) => <a key={item.id} href={`/categories/${item.slug}/`}>{item.name}</a>)}
         </div>
-        {collections.length>0&&<div className="collection-filters" aria-label={l.nav_collections}><button className={collection===null?'active':''} aria-pressed={collection===null} onClick={()=>setCollection(null)}>{l.all_collections}</button>{collections.map((item)=><button key={item.id} className={collection===item.id?'active':''} aria-pressed={collection===item.id} onClick={()=>setCollection(item.id)}>{item.name}</button>)}</div>}
+        {collections.length>0&&<div className="collection-filters" aria-label={l.nav_collections}>{collections.map((item)=><a key={item.id} href={`/collections/${item.slug}/`}>{item.name}</a>)}</div>}
         <div className="product-grid">
           {featured.map((product) => <a className="product-card" key={product.id} href={`/products/${product.slug}/`} aria-label={`${l.view_piece}: ${product.name}`}>
             <div className="product-image">{product.image && <ResponsiveImage src={product.image} media={product.image_media} sizes="(max-width: 760px) 50vw, 25vw" alt={product.image_alt || product.name} loading="lazy" />}{product.badge && <span className="product-badge">{product.badge}</span>}<span className="product-discover"><Icon name="arrow" /></span></div>
@@ -212,8 +247,8 @@ export default function Home() {
 
     <footer className="site-footer">
       <div className="footer-top"><div><a className="brand footer-brand" href="#top">{logo ? <ResponsiveImage className="brand-logo" src={logo} media={mode === 'dark' && site.logo_dark ? site.logo_dark_media : site.logo_media} sizes="190px" alt={site.logo_alt || site.site_name} /> : site.site_name}</a><p>{site.tagline || l.footer_note}</p></div>
-        <div><h3>{l.footer_navigation}</h3>{navigation.map(([url, label]) => <a key={url} href={url}>{label}</a>)}</div>
-        <div><h3>{l.footer_contact}</h3>{site.contact_email ? <a href={`mailto:${site.contact_email}`}>{site.contact_email}</a> : <a href="#contact">{l.nav_contact}</a>}</div>
+        <nav className="footer-explore" aria-label={l.footer_navigation}><h3>{l.footer_navigation}</h3><div className="footer-nav-links" data-columns={footerLinks.length>6?'3':'2'}>{footerLinks.map(([url,label])=><a key={url} href={url}>{label}</a>)}</div></nav>
+        <div className="footer-contact"><h3>{l.footer_contact}</h3>{site.contact_email ? <a href={`mailto:${site.contact_email}`}>{site.contact_email}</a> : <a href="/#contact">{l.nav_contact}</a>}</div>
       </div>
       <div className="footer-bottom"><p>{site.footer_text}</p><a href="#top">{l.back_top}<span>↑</span></a></div>
     </footer>
@@ -222,6 +257,7 @@ export default function Home() {
     <Modal open={search} onClose={() => setSearch(false)} label={l.search_open} closeLabel={l.search_close} className="search-dialog">
       <p className="eyebrow">{l.search_open}</p><h2>{l.search_results}</h2><label className="search-field"><span className="sr-only">{l.search_label}</span><Icon name="search" /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={l.search_placeholder} /></label>
       <div className="search-results">{results.map((product) => <a key={product.id} href={`/products/${product.slug}/`}><ResponsiveImage src={product.image} media={product.image_media} sizes="65px" alt={product.image_alt || product.name} /><span><strong>{product.name}</strong><small>{priceText(product, l)}</small></span><Icon name="arrow" /></a>)}{!results.length && <p>{l.search_empty}</p>}</div>
+      <a className="button button-primary" href={`/shop/?q=${encodeURIComponent(query)}`}>{l.catalog_view_all}<Icon name="arrow"/></a>
     </Modal>
   </>
 }

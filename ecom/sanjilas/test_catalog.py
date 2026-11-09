@@ -111,7 +111,7 @@ class CatalogTests(TestCase):
         ProductFeature.objects.create(product=self.product,name='Purity',value='18K')
         ProductImage.objects.create(product=self.product,image='products/test.webp',image_alt='Detail')
         ProductImage.objects.create(product=self.product,image='products/hidden.webp',image_alt='Hidden',is_active=False)
-        data=self.client.get('/api/home/').json()['products'][0]
+        data=self.client.get(f'/api/shop/products/{self.product.slug}/').json()['product']
         self.assertEqual(data['discounted_price'],'1500.00')
         self.assertTrue(data['has_price_range'])
         self.assertEqual([tag['name'] for tag in data['tags']],['Gift'])

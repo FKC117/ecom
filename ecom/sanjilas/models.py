@@ -133,7 +133,7 @@ def homepage_labels():
         "regular_price": "Regular price", "sale_price": "Your price", "from_price": "From", "gallery": "Product images",
         "piece_inquiry": "Enquire about this piece", "price_on_request": "Price on request",
         "collection_empty": "A new chapter is on its way. Come back soon.",
-        "footer_navigation": "Explore", "footer_contact": "Let’s talk jewellery",
+        "footer_navigation": "Explore", "footer_contact": "Let’s talk jewellery", "sitemap": "Sitemap",
         "footer_note": "Little details. Lasting impressions.", "back_top": "Back to top",
         "loading": "Opening our jewellery box…", "load_error": "We couldn’t open the jewellery box. Please try again.",
         "retry": "Try again", "currency_locale": "en-BD",

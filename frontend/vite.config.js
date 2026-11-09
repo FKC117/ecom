@@ -12,6 +12,8 @@ export default defineConfig({
       '/admin': 'http://127.0.0.1:8000',
       '/llms.txt': 'http://127.0.0.1:8000',
       '/llms-full.txt': 'http://127.0.0.1:8000',
+      '^/sitemap(?:-[0-9]+)?\\.xml$': 'http://127.0.0.1:8000',
+      '/robots.txt': 'http://127.0.0.1:8000',
     },
   },
 })

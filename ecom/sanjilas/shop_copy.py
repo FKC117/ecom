@@ -1,9 +1,11 @@
 from .protection_copy import customer_copy
+from .listing_copy import COPY as listing_copy
 
 
 def shop_labels():
     return {
         **customer_copy(),
+        **listing_copy,
         'gallery_previous':'Previous image', 'gallery_next':'Next image',
         'detail_plating':'Plating / finish',
         'detail_stone_origin':'Embellishment type', 'detail_stone_colour':'Stone / bead colour',
