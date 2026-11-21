@@ -13,6 +13,8 @@ function initializeProviders(site) {
       const fbq = function (...args) { if (fbq.callMethod) fbq.callMethod(...args); else fbq.queue.push(args) }
       fbq.queue = []; fbq.loaded = true; fbq.version = '2.0'
       window.fbq = fbq
+      if (!window._fbq) window._fbq = fbq
+      fbq.push = fbq
       const script = document.createElement('script'); script.async = true
       script.src = 'https://connect.facebook.net/en_US/fbevents.js'; document.head.appendChild(script)
     }

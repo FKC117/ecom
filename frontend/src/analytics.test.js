@@ -51,3 +51,17 @@ test('a broken third-party tracker cannot break successful shopping actions', as
   assert.doesNotThrow(()=>tracker.trackCommerce('AddToCart','add_to_cart',[],'BDT',100))
   assert.doesNotThrow(()=>tracker.trackPurchase({id:'blocked',items:[],currency:'BDT',total:100,status:'placed'}))
 })
+
+test('fresh Meta loader exposes the standard matching aliases and queued events', async () => {
+  const scripts = []
+  globalThis.window = {}
+  globalThis.document = {head:{appendChild:script=>scripts.push(script)},createElement:()=>({})}
+  const tracker = await import('./analytics.js?fresh-meta')
+  tracker.initializeAnalytics({meta_pixel_enabled:true,meta_pixel_id:'644965951111560'})
+  assert.equal(window.fbq,window._fbq)
+  assert.equal(window.fbq.push,window.fbq)
+  assert.equal(scripts.length,1)
+  assert.equal(scripts[0].src,'https://connect.facebook.net/en_US/fbevents.js')
+  assert.deepEqual(window.fbq.queue.map(call=>call[0]),['set','init','trackSingle'])
+  assert.equal(window.fbq.queue[2][2],'PageView')
+})
