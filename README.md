@@ -136,8 +136,7 @@ All panel labels/messages come from `SiteSettings.control_labels`, and field/mod
 labels come from Django. Branding, palette and mode use the existing shared design
 system in `frontend/src/index.css`. Production routing must send `/control/` to Django
 along with the API/admin routes and continue serving `/assets/` from the React build.
-For a multi-worker deployment, configure a shared Django cache so the sign-in attempt
-limit is coordinated across workers.
+Login attempt limits use django-axes with PostgreSQL, coordinating across workers.
 
 ## WebP image engine
 
@@ -438,3 +437,21 @@ can be cleared and signals are not proof that a customer is fraudulent.
 The existing `purge_commerce_tracking` command also deletes expired rate counters;
 schedule it during deployment. Existing order phone/item snapshots are indexed
 for duplicate checks without changing invoice values or marking old orders risky.
+
+## Category and collection pages
+
+Public catalog routes are `/shop/`, `/categories/<slug>/` and
+`/collections/<slug>/`. Django filters and sorts the database results and returns
+24 lightweight cards per page. Query parameters are `q`, `min_price`, `max_price`,
+`in_stock=1`, `sort` (featured, newest, price_asc, price_desc, name) and `page`.
+Price sorting/filtering uses the current discounted lead variant price and stock
+filtering respects active reservations. The homepage returns eight featured
+products. Public search queries the paginated catalog; HTML sitemap products are
+paged in batches of 100. Active category/collection links are in the XML sitemap.
+
+Nginx must proxy these document routes to Django, along with `/products/`, so
+canonical/social metadata and real 404 responses are available on direct visits.
+Keep `/assets/`, `/media/` and `/static/` on their existing Nginx aliases. Apply
+migrations and rebuild the frontend before starting the updated application.
+Production configuration must disable DEBUG and dummy payments; local development
+currently uses both. No production deployment is performed by these local changes.

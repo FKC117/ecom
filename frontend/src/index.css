@@ -520,6 +520,7 @@ h2 { font-size: clamp(32px, 3.2vw, 48px); line-height: 1.12; letter-spacing: -.0
 .catalog-variant-select select { width: 100%; min-width: 0; padding: 14px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; font-size: var(--font-body); }
 .catalog-availability { color: var(--accent); font-size: var(--font-ui); margin-bottom: 18px; }
 .catalog-availability.is-sold-out { color: var(--muted); }
+.preorder-badge { display: inline-block; padding: .25em .65em; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-size: var(--font-caption); }
 .catalog-tags { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
 .catalog-tags span { border: 1px solid var(--line); padding: 6px 10px; font-size: var(--font-caption); }
 .catalog-features, .catalog-care { margin: 24px 0; }

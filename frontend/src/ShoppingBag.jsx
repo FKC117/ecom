@@ -2,6 +2,7 @@ import LocationCombobox from './LocationCombobox'
 import { useEffect, useRef, useState } from 'react'
 import { controlRequest } from './control/api'
 import { priceText } from './catalogPricing'
+import { trackCommerce } from './analytics'
 
 function Money({amount,currency,labels}) {return priceText({discounted_price:amount,currency},labels)}
 
@@ -44,6 +45,7 @@ export default function ShoppingBag({shop,labels:l,onChanged,onClose}) {
     return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',update)}
   },[refresh,setError])
   useEffect(()=>{if(checkout){checkoutPanel.current?.querySelector('input')?.focus({preventScroll:true});checkoutPanel.current?.scrollIntoView({block:'start',behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'})}},[checkout])
+  useEffect(()=>{if(checkout&&cart?.items?.length)trackCommerce('InitiateCheckout','begin_checkout',cart.items.filter(item=>!item.expired),cart.currency,cart.total,`checkout-${cart.cart_id}-${cart.draft_expiry}`)},[checkout,cart])
   const update=async(item,quantity)=>{
     try {await mutate('cart/items/',{product_id:item.product_id,variant_id:item.variant_id,quantity});onChanged()}
     catch {await refresh().catch(()=>{})}

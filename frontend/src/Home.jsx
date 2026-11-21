@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { applyBranding } from './branding'
+import { initializeAnalytics } from './analytics'
 import ResponsiveImage from './ResponsiveImage'
 import ProductDetail, { Price } from './ProductDetail'
 import { priceText } from './catalogPricing'
@@ -104,6 +105,7 @@ export default function Home() {
           if(oldCategory||oldCollection){window.location.replace(oldCategory?`/categories/${oldCategory.slug}/`:`/collections/${oldCollection.slug}/`);return}
         }
         applyBranding(result.site)
+        initializeAnalytics(result.site)
         let saved
         try { saved = localStorage.getItem('storefront-color-mode') } catch { /* Storage may be disabled. */ }
         setMode(['light', 'dark'].includes(saved) ? saved : result.site.default_color_mode)
@@ -227,7 +229,7 @@ export default function Home() {
         <div className="product-grid">
           {featured.map((product) => <a className="product-card" key={product.id} href={`/products/${product.slug}/`} aria-label={`${l.view_piece}: ${product.name}`}>
             <div className="product-image">{product.image && <ResponsiveImage src={product.image} media={product.image_media} sizes="(max-width: 760px) 50vw, 25vw" alt={product.image_alt || product.name} loading="lazy" />}{product.badge && <span className="product-badge">{product.badge}</span>}<span className="product-discover"><Icon name="arrow" /></span></div>
-            <div className="product-copy"><h3>{product.name}</h3><p>{product.subtitle}</p><span className="product-price"><Price item={product} labels={l} range /></span></div>
+            <div className="product-copy"><h3>{product.name}</h3><p>{product.subtitle}</p><span className="product-price"><Price item={product} labels={l} range /></span>{product.preorder_available && <span className="preorder-badge">{l.backorder}</span>}</div>
           </a>)}
         </div>
         {!featured.length && <p className="empty-state">{l.collection_empty}</p>}

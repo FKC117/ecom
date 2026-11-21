@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import ResponsiveImage from './ResponsiveImage'
+import { trackCommerce } from './analytics'
 
 import { priceText } from './catalogPricing'
 
@@ -26,8 +27,10 @@ export default function ProductDetail({ product, categories, site, labels: l, on
   const [galleryId, setGalleryId] = useState(null)
   const variant = variants.find((item) => item.id === variantId) || lead
   const item = variant || product
-  const gallery = [{id:'main',image:product.image,image_media:product.image_media,image_alt:product.image_alt}, ...(product.gallery || [])].filter((image) => image.image)
-  if (variant?.image) gallery.unshift({id:'variant',image:variant.image,image_media:variant.image_media,image_alt:variant.image_alt})
+  useEffect(()=>{trackCommerce('ViewContent','view_item',[{product_id:product.id,variant_id:variant?.id,sku:item.sku,product_name:product.name,quantity:1,unit_price:item.discounted_price}],product.currency,item.discounted_price,`view-${product.id}-${variant?.id||''}`)},[product.id,product.name,product.currency,variant?.id,item.sku,item.discounted_price])
+  const gallery = variant?.image
+    ? [{id:'variant',image:variant.image,image_media:variant.image_media,image_alt:variant.image_alt || variant.name}]
+    : [{id:'main',image:product.image,image_media:product.image_media,image_alt:product.image_alt}, ...(product.gallery || [])].filter((entry) => entry.image)
   const image = gallery.find((entry) => entry.id === galleryId) || gallery[0]
   const imageIndex=gallery.findIndex(entry=>entry.id===image?.id)
   const moveImage=direction=>{if(gallery.length>1)setGalleryId(gallery[(imageIndex+direction+gallery.length)%gallery.length].id)}
@@ -58,7 +61,7 @@ export default function ProductDetail({ product, categories, site, labels: l, on
     <dialog ref={zoom} className="dialog product-zoom-dialog" aria-label={l.product_zoom} onKeyDown={galleryKeys} onCancel={()=>setZoomed(false)} onClose={()=>setZoomed(false)} onClick={event=>{if(event.target===zoom.current)setZoomed(false)}}><button className="icon-button dialog-close" onClick={()=>setZoomed(false)} aria-label={l.close_details}>×</button><div className="gallery-stage" onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={()=>{touch.current=null}}>{image&&<img src={image.image} alt={image.image_alt||product.name}/>} {gallery.length>1&&<><button type="button" className="gallery-arrow gallery-previous" aria-label={l.gallery_previous} onClick={()=>moveImage(-1)}>‹</button><button type="button" className="gallery-arrow gallery-next" aria-label={l.gallery_next} onClick={()=>moveImage(1)}>›</button><span className="gallery-counter" role="status" aria-live="polite">{imageIndex+1} / {gallery.length}</span></>}</div></dialog>
     <div className="detail-copy"><p className="eyebrow">{categories.find((entry) => entry.id === product.category)?.name}</p><Heading>{product.name}</Heading><p className="detail-subtitle">{product.subtitle}</p>
       {variants.length > 0 && <label className="catalog-variant-select">{l.variants}<select value={variant?.id || ''} onChange={(event) => {setVariantId(Number(event.target.value));setGalleryId(null);setQuantity(1);setError('')}}>{variants.map((entry) => <option key={entry.id} value={entry.id}>{entry.name} · {priceText(entry,l)} · {l[entry.availability]}</option>)}</select></label>}
-      <p className="detail-price" aria-live="polite"><Price item={item} labels={l} /></p><p className={`catalog-availability ${item.availability === 'sold_out' ? 'is-sold-out' : ''}`} role="status">{l[item.availability]}</p>
+      <p className="detail-price" aria-live="polite"><Price item={item} labels={l} /></p><p className={`catalog-availability ${item.availability === 'sold_out' ? 'is-sold-out' : ''}`} role="status">{item.availability === 'backorder' ? <span className="preorder-badge">{l.backorder}</span> : l[item.availability]}</p>
       <form className="catalog-add" onSubmit={async(event)=>{event.preventDefault();setBusy(true);setError('');try{await onAdd(variant,Number(quantity))}catch(failure){setError(failure.message)}finally{setBusy(false)}}}><label>{l.quantity}<input type="number" min="1" max={item.available_quantity||1} step="1" value={quantity} onChange={(event)=>setQuantity(event.target.value)} required disabled={busy||!item.can_purchase} /></label><button className="button button-primary" aria-describedby={!item.can_purchase?`purchase-unavailable-${product.id}`:undefined} disabled={busy||!item.can_purchase}>{busy?l.adding_to_cart:l.add_to_cart}</button>{error&&<p className="control-error" role="alert">{error}</p>}</form>
       {!item.can_purchase&&<p id={`purchase-unavailable-${product.id}`} className="control-muted" role="status">{item.discounted_price===null?l.purchase_price_missing:item.track_stock===false?l.shop_stock_unconfigured:item.available_quantity===0?l.shop_insufficient_stock:l.shop_unavailable}</p>}
       {tags.length > 0 && <div className="catalog-tags">{tags.map((tag) => <span key={tag.id}>{tag.name}</span>)}</div>}

@@ -100,8 +100,8 @@ def cart_item(request):
     if quantity:
         from .order_protection import preflight
         preflight(request, 'reservation')
-    commerce.set_item(request.user,product,variant,quantity,context=getattr(request,'commerce_context',{}))
-    return JsonResponse(cart_data(request.user,request.session.get("delivery_zone","inside")))
+    changed=commerce.set_item(request.user,product,variant,quantity,context=getattr(request,'commerce_context',{}))
+    return JsonResponse({**cart_data(request.user,request.session.get("delivery_zone","inside")), 'analytics_add':getattr(changed,'analytics_add',None)})
 
 
 class CheckoutForm(forms.Form):
@@ -237,4 +237,7 @@ def save_draft(request):
     clean.update(city={'id':city.pk,'name':city.name} if city else None,area={'id':area.pk,'name':area.name} if area else None,
                  payment_method=data.get('payment_method') if data.get('payment_method') in ['cod','delivery_advance','pay_now'] else 'cod',checkout_open=data.get('checkout_open') is True)
     cart.checkout_draft=clean;cart.draft_expires_at=expiry;cart.save(update_fields=['checkout_draft','draft_expires_at'])
+    if clean['checkout_open']:
+        from .analytics import start_checkout
+        start_checkout(cart, expiry)
     return JsonResponse({'saved':True})

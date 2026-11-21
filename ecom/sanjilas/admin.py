@@ -16,6 +16,7 @@ class SiteSettingsAdmin(ImportExportModelAdmin):
     fieldsets = (
         ("Branding", {"fields": ("site_name", "tagline", "site_url", "logo", "logo_dark", "logo_alt", "favicon", "apple_touch_icon", "footer_text")}),
         ("Theme and contact", {"fields": ("palette", "default_color_mode", "contact_email")}),
+        ("Marketing analytics", {"fields": ("meta_pixel_id", "meta_pixel_enabled", "google_measurement_id", "google_analytics_enabled")}),
         ("Invoice details", {"fields": ("invoice_address", "invoice_phone", "invoice_note", "invoice_generated_note", "invoice_terms_heading", "invoice_terms")}),
         ("Checkout & reservations", {"fields": ("low_stock_threshold", "cart_reservation_minutes", "shop_currency", "delivery_inside_dhaka", "delivery_outside_dhaka", "cash_on_delivery_enabled", "dummy_payments_enabled", "delivery_advance_enabled", "delivery_advance_instructions", "delivery_advance_methods")}),
         ("Order protection", {"fields": ("order_protection_enabled", "duplicate_order_minutes", "checkout_attempt_limit", "reservation_attempt_limit", "cart_unit_limit", "order_review_phone_limit", "order_review_ip_limit")}),
@@ -334,6 +335,31 @@ class LoginAccessAdmin(LoginSecurityAdminMixin, AccessLogAdmin, ImportExportMode
 @admin.register(AccessFailureLog)
 class LoginFailureAdmin(LoginSecurityAdminMixin, AccessFailureLogAdmin, ImportExportModelAdmin):
     pass
+
+
+from .models import CartJourney
+
+
+class JourneyStatusFilter(admin.SimpleListFilter):
+    title = 'journey status'
+    parameter_name = 'journey_status'
+
+    def lookups(self, request, model_admin):
+        return [('abandoned', 'Abandoned'), ('open', 'Active'), ('converted', 'Converted'), ('emptied', 'Emptied')]
+
+    def queryset(self, request, queryset):
+        from django.utils import timezone
+        if self.value() == 'abandoned': return queryset.filter(outcome='open', expires_at__lte=timezone.now())
+        if self.value() == 'open': return queryset.filter(outcome='open', expires_at__gt=timezone.now())
+        if self.value() in ['converted', 'emptied']: return queryset.filter(outcome=self.value())
+        return queryset
+
+
+@admin.register(CartJourney)
+class CartJourneyAdmin(ReadOnlyCommerceAdmin):
+    list_display = ('id', 'cart', 'status', 'checkout_started_at', 'subtotal', 'currency', 'expires_at', 'order')
+    list_filter = (JourneyStatusFilter,)
+    search_fields = ('cart__user__username',)
 
 
 for model in apps.get_app_config("sanjilas").get_models():

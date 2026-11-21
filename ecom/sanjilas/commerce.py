@@ -81,6 +81,8 @@ def set_item(user, product_id, variant_id, quantity, context=None):
             existing.delete()
         if not cart.items.exists():
             cart.checkout_draft={};cart.draft_expires_at=None;cart.save(update_fields=['checkout_draft','draft_expires_at'])
+        from .analytics import snapshot_journey
+        snapshot_journey(cart, SiteSettings.load().shop_currency)
         return cart
     site = SiteSettings.load()
     if site.order_protection_enabled:
@@ -94,6 +96,12 @@ def set_item(user, product_id, variant_id, quantity, context=None):
     active_expiry=cart.items.filter(expires_at__gt=now).order_by('expires_at').values_list('expires_at',flat=True).first()
     expiry=active_expiry or now+timedelta(minutes=SiteSettings.load().cart_reservation_minutes)
     CartItem.objects.update_or_create(cart=cart,product=product,variant=variant,defaults={'quantity':quantity,'expires_at':expiry})
+    added = quantity - (existing.quantity if existing and existing.expires_at > now else 0)
+    if added > 0:
+        from types import SimpleNamespace
+        cart.analytics_add = snapshot(SimpleNamespace(quantity=added), product, variant)
+    from .analytics import snapshot_journey
+    snapshot_journey(cart, site.shop_currency)
     return cart
 
 
@@ -179,6 +187,8 @@ def place_order(user, key, details, quote=None):
         amount=shipping if method=='delivery_advance' else order.total
         from .shop import labels
         payments.append(SimpleNamespace(user=user),order,OrderPayment(kind='payment',amount=amount,method='dummy',is_simulated=True,reference=order.advance_reference,notes=labels()['dummy_payment_note']),uuid.uuid5(key,'dummy-payment'))
+    from .models import CartJourney
+    CartJourney.objects.filter(cart=cart, outcome='open', expires_at__gt=timezone.now()).update(outcome='converted', order=order)
     cart.items.all().delete()
     cart.checkout_draft={};cart.draft_expires_at=None;cart.save(update_fields=['checkout_draft','draft_expires_at'])
     return order

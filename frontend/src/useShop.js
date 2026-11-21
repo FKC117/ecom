@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { controlRequest } from './control/api'
+import { trackCommerce, trackPurchase } from './analytics'
 
 export default function useShop() {
   const version=useRef(0)
@@ -20,6 +21,8 @@ export default function useShop() {
     Object.entries(values).forEach(([key,value])=>body.set(key,value??''))
     try {
       const result=await controlRequest(`/api/shop/${path}`,{method:'POST',body})
+      if(result.analytics_add)trackCommerce('AddToCart','add_to_cart',[result.analytics_add],result.currency,result.analytics_add.line_total)
+      if(path==='checkout/'&&result.order)trackPurchase(result.order)
       if(result.items)setCart((current)=>({...current,...result}))
       if(result.cart)setCart((current)=>({...current,...result.cart}))
       return result

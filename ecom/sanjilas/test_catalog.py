@@ -90,6 +90,11 @@ class CatalogTests(TestCase):
         self.assertEqual(variant.availability,'sold_out')
         variant.allow_backorder=True;variant.save()
         self.assertEqual(variant.availability,'backorder')
+        data = self.client.get('/api/home/?directory=1').json()
+        product = next(row for row in data['products'] if row['id'] == self.product.pk)
+        self.assertEqual(product['availability'], 'backorder')
+        self.assertTrue(product['preorder_available'])
+        self.assertFalse(product['can_purchase'])
         variant.stock_quantity=1;variant.save()
         self.assertEqual(variant.availability,'in_stock')
         with self.assertRaises(ValidationError):

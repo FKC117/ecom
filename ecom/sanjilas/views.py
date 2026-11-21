@@ -47,7 +47,7 @@ def home_page(request, slug=None, listing_kind=None, listing_slug=None):
         return {'available_quantity': free, 'can_purchase': item.track_stock and free > 0 and item.discounted_price is not None and (item.product.currency if isinstance(item, ProductVariant) else item.currency) == site.shop_currency,
                 ** {'regular_price': item.regular_price, 'discounted_price': item.discounted_price,
                 'has_discount': item.regular_price is not None and item.discounted_price < item.regular_price,
-                'availability': 'not_for_sale' if not item.track_stock else 'sold_out' if free == 0 else item.availability}}
+                'availability': 'not_for_sale' if not item.track_stock else 'sold_out' if free == 0 and item.availability != 'backorder' else item.availability}}
 
     def tags(item):
         return [{'id': tag.pk, 'name': tag.name, 'slug': tag.slug} for tag in item.tags.all()]
@@ -63,6 +63,9 @@ def home_page(request, slug=None, listing_kind=None, listing_slug=None):
         data['gallery'] = [serialize(image) for image in product.gallery.all()] if not compact else []
         data['variants'] = [{**pricing(variant),'currency':product.currency} if compact else {**serialize(variant), **pricing(variant), 'tags': tags(variant), 'currency': product.currency,
                             'details':details(product,variant,labels=page.labels), 'care_instructions':variant.care_instructions.strip() or product.care_instructions.strip()} for variant in product.variants.all()]
+        has_variants = bool(data['variants']) or getattr(product, 'catalog_has_variants', False)
+        preorder_options = data['variants'] if has_variants else [data]
+        data['preorder_available'] = any(option['availability'] == 'backorder' for option in preorder_options)
         if data['variants']:
             variants = data['variants']
             available = [v for v in variants if v['can_purchase']] or [v for v in variants if v['availability'] != 'sold_out'] or variants
@@ -76,7 +79,7 @@ def home_page(request, slug=None, listing_kind=None, listing_slug=None):
             if getattr(product,'catalog_has_variants',False) or product.variants.exists():
                 data['can_purchase'] = False
         if compact:
-            data={key:data[key] for key in ['id','name','slug','subtitle','price','currency','image','image_media','image_alt','badge','category','collections','is_featured','regular_price','discounted_price','has_discount','availability','can_purchase','available_quantity','has_price_range']}
+            data={key:data[key] for key in ['id','name','slug','subtitle','price','currency','image','image_media','image_alt','badge','category','collections','is_featured','regular_price','discounted_price','has_discount','availability','can_purchase','available_quantity','has_price_range','preorder_available']}
         return data
 
     from .listings import annotated, paginate, metadata

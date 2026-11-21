@@ -3,7 +3,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
-from django.core.validators import MinValueValidator
+from django.core.validators import MinValueValidator, RegexValidator
 from django.db.models.expressions import RawSQL
 from django.db import models
 
@@ -23,6 +23,10 @@ def invoice_terms_default():
 
 
 class SiteSettings(models.Model):
+    meta_pixel_id = models.CharField(max_length=30, blank=True, validators=[RegexValidator(r'^\d+$', 'Enter a numeric Meta Pixel ID.')])
+    meta_pixel_enabled = models.BooleanField(default=False, help_text='Send storefront events to Meta. Does not enable advanced matching.')
+    google_measurement_id = models.CharField(max_length=30, blank=True, validators=[RegexValidator(r'^G-[A-Z0-9]+$', 'Enter a GA4 measurement ID starting with G-.')])
+    google_analytics_enabled = models.BooleanField(default=False)
     class Palette(models.TextChoices):
         CHAMPAGNE = "champagne", "Champagne Gold"
         ROSE = "rose", "Rose Quartz"
@@ -129,7 +133,7 @@ def homepage_labels():
         "all_collections": "All pieces", "view_piece": "Discover this piece", "close_details": "Close details",
         "variants": "Choose your variant", "features": "Details & features", "material": "Base material", "gemstone": "Stones / embellishments",
         "size": "Size", "color": "Colour / finish", "care": "Care instructions", "sku": "SKU",
-        "in_stock": "In stock", "sold_out": "Sold out", "backorder": "Available to order",
+        "in_stock": "In stock", "sold_out": "Sold out", "backorder": "Preorder available",
         "regular_price": "Regular price", "sale_price": "Your price", "from_price": "From", "gallery": "Product images",
         "piece_inquiry": "Enquire about this piece", "price_on_request": "Price on request",
         "collection_empty": "A new chapter is on its way. Come back soon.",
@@ -559,6 +563,31 @@ class Cart(models.Model):
 
     def __str__(self):
         return f'{self.user} / {self.pk}'
+
+
+class CartJourney(models.Model):
+    """A reservation window; abandoned means its deadline passed without conversion."""
+    cart = models.ForeignKey(Cart, on_delete=models.PROTECT, related_name='journeys')
+    started_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(db_index=True)
+    checkout_started_at = models.DateTimeField(null=True, blank=True)
+    outcome = models.CharField(max_length=12, default='open', choices=[('open', 'Open'), ('converted', 'Converted'), ('emptied', 'Emptied')])
+    order = models.OneToOneField('Order', null=True, blank=True, on_delete=models.PROTECT)
+    items = models.JSONField(default=list)
+    subtotal = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    currency = models.CharField(max_length=3)
+
+    class Meta:
+        verbose_name = 'cart journey'
+        verbose_name_plural = 'cart journeys'
+        constraints = [models.UniqueConstraint(fields=['cart', 'expires_at'], name='unique_cart_journey_window')]
+
+    @property
+    def status(self):
+        return 'abandoned' if self.outcome == 'open' and self.expires_at <= timezone.now() else self.outcome
+
+    def __str__(self):
+        return f'{self.cart_id} / {self.status}'
 
 
 class CartItem(models.Model):
