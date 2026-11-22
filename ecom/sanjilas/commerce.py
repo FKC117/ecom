@@ -209,6 +209,8 @@ def transition_order(order_id, status, user=None, actor=None):
     from .invoice_edits import snapshot
     before=snapshot(order)
     if status == 'cancelled':
+        from .shipments import guard_live_changes
+        guard_live_changes(order)
         lines = list(order.items.all())
         products,variants = lock_catalog(lines)
         for line in lines:

@@ -713,6 +713,61 @@ class Order(models.Model):
         return self.reference
 
 
+class CourierAccount(models.Model):
+    name = models.CharField(max_length=100)
+    provider = models.CharField(max_length=30, choices=[('pathao', 'Pathao')], default='pathao')
+    environment = models.CharField(max_length=10, choices=[('sandbox', 'Sandbox'), ('live', 'Live')], default='sandbox')
+    store_id = models.PositiveIntegerField(help_text='Pickup store ID from this courier environment.')
+    is_active = models.BooleanField(default=True)
+
+    def clean(self):
+        super().clean()
+        if self.pk and self.shipments.exists():
+            old = type(self).objects.get(pk=self.pk)
+            if (old.provider, old.environment) != (self.provider, self.environment):
+                raise ValidationError('Provider and environment cannot change after a shipment is created.')
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.name} ({self.get_environment_display()})'
+
+
+class CourierToken(models.Model):
+    key = models.CharField(max_length=64, unique=True, editable=False)
+    access_token = models.TextField(editable=False)
+    refresh_token = models.TextField(blank=True, editable=False)
+    expires_at = models.DateTimeField(editable=False)
+
+    def __str__(self):
+        return f'Courier token expires {self.expires_at}'
+
+
+class Shipment(models.Model):
+    order = models.ForeignKey(Order, on_delete=models.PROTECT, related_name='shipments')
+    account = models.ForeignKey(CourierAccount, on_delete=models.PROTECT, related_name='shipments')
+    environment = models.CharField(max_length=10, choices=[('sandbox', 'Sandbox'), ('live', 'Live')])
+    state = models.CharField(max_length=12, choices=[('submitting','Submitting'), ('booked','Booked'), ('failed','Rejected'), ('uncertain','Needs reconciliation')])
+    merchant_order_id = models.CharField(max_length=100, unique=True)
+    consignment_id = models.CharField(max_length=100, blank=True)
+    courier_status = models.CharField(max_length=100, blank=True)
+    delivery_fee = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    request_payload = models.JSONField(default=dict)
+    last_error = models.CharField(max_length=300, blank=True)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+        constraints = [models.UniqueConstraint(fields=['order', 'environment'], name='one_shipment_per_order_environment')]
+
+    def __str__(self):
+        return f'{self.order} / {self.account} / {self.state}'
+
+
 class CommerceBlock(models.Model):
     kind = models.CharField(max_length=10, choices=[('phone','Phone'),('user','Account ID'),('browser','Browser identifier'),('ip','IP address')])
     value = models.CharField(max_length=64, help_text='Exact identifier. IP blocks also affect other people sharing that connection.')

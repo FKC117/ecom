@@ -362,6 +362,44 @@ class CartJourneyAdmin(ReadOnlyCommerceAdmin):
     search_fields = ('cart__user__username',)
 
 
+from .models import CourierAccount, CourierToken, Shipment
+
+
+@admin.register(CourierAccount)
+class CourierAccountAdmin(ImportExportModelAdmin):
+    list_display = ('name', 'provider', 'environment', 'store_id', 'is_active')
+    list_filter = ('provider', 'environment', 'is_active')
+    search_fields = ('name',)
+
+
+@admin.register(Shipment)
+class ShipmentAdmin(ReadOnlyCommerceAdmin):
+    list_display = ('order', 'account', 'environment', 'state', 'consignment_id', 'courier_status', 'updated_at')
+    list_filter = ('environment', 'state', 'account')
+    search_fields = ('merchant_order_id', 'consignment_id', 'order__customer_name')
+
+    def has_add_permission(self, request):
+        return (getattr(request.resolver_match, 'url_name', '') == 'courier-book'
+                and request.user.has_perm('sanjilas.add_shipment'))
+
+    def has_change_permission(self, request, obj=None):
+        return (getattr(request.resolver_match, 'url_name', '') == 'courier-refresh'
+                and request.user.has_perm('sanjilas.change_shipment'))
+
+
+@admin.register(CourierToken)
+class CourierTokenAdmin(ReadOnlyCommerceAdmin):
+    # Tokens never enter forms, JSON, exports or admin search results.
+    fields = ('id', 'expires_at')
+    list_display = ('id', 'expires_at')
+
+    def get_readonly_fields(self, request, obj=None):
+        return self.fields
+
+    def has_export_permission(self, request):
+        return False
+
+
 for model in apps.get_app_config("sanjilas").get_models():
     if not admin.site.is_registered(model):
         admin.site.register(model, ImportExportModelAdmin)

@@ -4,6 +4,16 @@ from .protection_copy import staff_copy
 def control_labels():
     """Backend-owned copy for the React control panel."""
     return {
+        'courier_title': 'Courier shipments', 'courier_account': 'Courier account',
+        'courier_book': 'Book courier', 'courier_confirm': 'Confirm courier booking',
+        'courier_confirm_help': 'This sends the address and outstanding BDT balance to the selected courier environment. Review the account, parcel details and amount due before confirming.',
+        'courier_help': 'Sandbox shipments are tests. Live bookings require server configuration. Local City and Area IDs are different from courier location IDs; optional courier IDs may be omitted for Pathao address detection.',
+        'courier_no_accounts': 'Add an active Courier account in the model directory first. Use the courier stores lookup to find its pickup store ID.',
+        'courier_refresh': 'Refresh / reconcile', 'courier_consignment': 'Consignment ID',
+        'courier_merchant_reference': 'Merchant reference', 'courier_amount': 'Amount to collect (BDT)',
+        'courier_fee': 'Courier delivery fee', 'courier_empty': 'No courier shipments yet.',
+        'courier_lookup': 'Load courier stores / locations', 'courier_cities': 'Cities',
+        'courier_stores': 'Pickup stores', 'courier_zones': 'Zones', 'courier_areas': 'Areas',
         **staff_copy(),
         'gallery_title':'Gallery images', 'gallery_add':'Add image',
         'gallery_save_another':'Save and add another',

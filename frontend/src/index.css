@@ -895,3 +895,6 @@ h2 { font-size: clamp(32px, 3.2vw, 48px); line-height: 1.12; letter-spacing: -.0
   .catalog-page .product-copy h2 { font-size: 20px; }
 }
 @media (min-width: 761px) and (max-width: 1100px) { .listing-results .product-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+/* Courier controls reuse the shared control palette and responsive forms. */
+.courier-panel .ops-order-block { margin-block: 1rem; overflow-wrap: anywhere; }
+.courier-lookup { max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }

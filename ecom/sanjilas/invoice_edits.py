@@ -63,6 +63,8 @@ def detail(request,pk):
 @transaction.atomic
 def amend(request,pk,post,save=False):
     order=scoped_order(request,pk,True)
+    from .shipments import guard_live_changes
+    guard_live_changes(order)
     try:key=uuid.UUID(post.get('checkout_key',''));expected=int(post.get('expected_version',''))
     except (ValueError,TypeError):raise ValidationError(control.labels()['invalid_form'])
     previous=InvoiceRevision.objects.filter(operation_key=key).first()

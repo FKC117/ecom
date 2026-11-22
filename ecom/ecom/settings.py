@@ -20,6 +20,14 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
+# Separate environments prevent accidentally sending sandbox work to production.
+PATHAO_LIVE_ENABLED = os.getenv('PATHAO_LIVE_ENABLED', 'false').lower() in {'true', '1', 'yes'}
+PATHAO = {
+    environment: {field: os.getenv(f'PATHAO_{environment.upper()}_{field.upper()}', '')
+                  for field in ('client_id', 'client_secret', 'username', 'password')}
+    for environment in ('sandbox', 'live')
+}
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/

@@ -62,6 +62,8 @@ def record(request,pk):
 
 
 def append(request,order,row,key):
+    from .shipments import guard_live_changes
+    guard_live_changes(order, allow_completed=True)
     from .invoice_edits import snapshot
     ma=admin.site._registry[Order]
     balances=summary(order)

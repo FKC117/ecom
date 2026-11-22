@@ -2,9 +2,14 @@ from . import payments, locations
 from django.urls import path
 
 from . import views, control, shop, operations, manual_invoices, invoice_edits
+from . import shipments
 
 app_name = "sanjilas"
 urlpatterns = [
+    path('control/couriers/<int:account_id>/<str:kind>/', shipments.locations),
+    path('control/operations/orders/<uuid:pk>/courier/', shipments.detail),
+    path('control/operations/orders/<uuid:pk>/courier/book/', shipments.book, name='courier-book'),
+    path('control/operations/orders/<uuid:pk>/courier/<int:shipment_id>/refresh/', shipments.refresh, name='courier-refresh'),
     path('shop/catalog/',views.home_page,{'listing_kind':'shop'}),
     path('shop/categories/<slug:listing_slug>/',views.home_page,{'listing_kind':'categories'}),
     path('shop/collections/<slug:listing_slug>/',views.home_page,{'listing_kind':'collections'}),
