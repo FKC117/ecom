@@ -22,7 +22,7 @@ from .operations import allowed
 def snapshot(order):
     return {'reference':order.reference,'advance_verified':order.advance_verified,**{k:str(v) for k,v in payments.summary(order).items()},'delivery_zone':order.delivery_zone,'status':order.status,'currency':order.currency,
         'customer_name':order.customer_name,'email':order.email,'phone':order.phone,'address':order.address,
-        'area':order.area,'city':order.city,'postal_code':order.postal_code,'notes':order.notes,
+        'area':order.area,'zone':order.zone,'city':order.city,'postal_code':order.postal_code,'notes':order.notes,
         'subtotal':str(order.subtotal),'shipping_fee':str(order.shipping_fee),'total':str(order.total),
         'items':[{key:str(getattr(item,key)) if key in ['regular_price','unit_price','line_total','discount_input'] else getattr(item,key)
                   for key in ['product_id','variant_id','product_name','variant_name','sku','quantity','regular_price','unit_price','line_total','discount_mode','discount_input','image_url']} for item in order.items.order_by('pk')]}
@@ -57,7 +57,8 @@ def detail(request,pk):
                        catalog_regular_price=catalog.regular_price,catalog_discount_type=catalog.discount_source.discount_type,catalog_discount_value=catalog.discount_source.discount_value)
         lines.append(row)
     return control.JsonResponse({'id':str(order.pk),'reference':order.reference,'version':order.revision,
-        'details':{name:getattr(order,name) for name in ['customer_name','email','phone','address','area','city','postal_code','notes','shipping_fee','delivery_zone']},'items':lines,'currency':order.currency})
+        'location_records':{name:{'id':getattr(order,name+'_record_id'),'name':getattr(order,name)} for name in ('city','zone','area') if getattr(order,name+'_record_id')},
+        'details':{name:getattr(order,name) for name in ['customer_name','email','phone','address','area','zone','city','postal_code','notes','shipping_fee','delivery_zone']},'items':lines,'currency':order.currency})
 
 
 @transaction.atomic
@@ -113,9 +114,9 @@ def amend(request,pk,post,save=False):
         for identity in old_counts.keys()|new_counts.keys():
             delta=old_counts[identity]-new_counts[identity]
             if delta:InventoryMovement.objects.create(product_id=identity[0],variant_id=identity[1],order=order,quantity=delta,reason='adjustment',actor=request.user,note=reason)
-    if reviewed['details']['city']!=order.city or reviewed['details']['area']!=order.area:
+    if reviewed['details']['city']!=order.city or reviewed['details']['area']!=order.area or reviewed['details']['zone']!=order.zone:
         from .locations import resolve
-        for name,value in resolve(reviewed['details']['city'],reviewed['details']['area'],required=False).items():setattr(order,name,value)
+        for name,value in resolve(reviewed['details']['city'],reviewed['details']['area'],required=False,zone=reviewed['details']['zone']).items():setattr(order,name,value)
     for name,value in reviewed['details'].items():setattr(order,name,value)
     order.subtotal=reviewed['subtotal'];order.shipping_fee=reviewed['shipping_fee'];order.total=reviewed['total'];order.revision+=1
     order.payment_status=payments.summary(order)['payment_status']

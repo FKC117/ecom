@@ -15,7 +15,6 @@ from . import control, commerce
 from .models import Order, OrderItem, Product, ProductVariant, InventoryMovement, SiteSettings
 from .operations import allowed
 from .delivery import rates
-from .locations import directory
 
 
 def permitted(request):
@@ -29,6 +28,7 @@ class HeaderForm(forms.Form):
     phone=forms.CharField(max_length=40,required=False)
     address=forms.CharField(max_length=1000,required=False)
     area=forms.CharField(max_length=150,required=False)
+    zone=forms.CharField(max_length=150,required=False)
     city=forms.CharField(max_length=120,required=False)
     postal_code=forms.CharField(max_length=30,required=False)
     notes=forms.CharField(max_length=1000,required=False)
@@ -90,7 +90,7 @@ def catalog(request):
                          'price':item.discounted_price,'regular_price':item.regular_price,'catalog_discount_type':item.discount_source.discount_type,'catalog_discount_value':item.discount_source.discount_value,'discount_amount':item.regular_price-item.discounted_price if item.regular_price is not None else 0,'currency':product.currency,'available':commerce.available_quantity(item)})
             if len(rows)>=50:break
     site=SiteSettings.load()
-    return control.JsonResponse({'items':rows[:50],'currency':site.shop_currency,'shipping_fee':site.shipping_fee,'delivery_rates':rates(site),'can_record_payment':request.user.has_perm('sanjilas.mark_payment'),'locations':directory()})
+    return control.JsonResponse({'items':rows[:50],'currency':site.shop_currency,'shipping_fee':site.shipping_fee,'delivery_rates':rates(site),'can_record_payment':request.user.has_perm('sanjilas.mark_payment')})
 
 
 @transaction.atomic
@@ -104,8 +104,8 @@ def build(request,post,issue=False,editing=None):
     values['delivery_zone']=values.get('delivery_zone') or 'custom'
     shipping=charge(SiteSettings.load(),values['delivery_zone'],shipping)
     from .locations import resolve
-    if editing is None or values['city']!=editing.city or values['area']!=editing.area:
-        values.update(resolve(values['city'],values['area'],required=False))
+    if editing is None or values['city']!=editing.city or values['area']!=editing.area or values['zone']!=editing.zone:
+        values.update(resolve(values['city'],values['area'],required=False,zone=values['zone']))
     if not isinstance(lines,list) or not 1<=len(lines)<=50:raise ValidationError({'items':control.labels()['manual_items_required']})
     if editing is None:
         with connection.cursor() as cursor:
@@ -193,8 +193,8 @@ def build(request,post,issue=False,editing=None):
         advance=dict(payment_form.cleaned_data)
         from django.utils import timezone
         if advance['occurred_at']>timezone.now():raise ValidationError(control.labels()['payment_future'])
-    quote=hashlib.sha256(json.dumps({'details':{k:v for k,v in values.items() if k not in ['city_record','area_record']},'lines':snapshots,'currency':currency,'shipping':shipping,'advance':advance},sort_keys=True,default=str).encode()).hexdigest()
-    if not issue:return {'amount_paid':paid,'amount_due':total-paid,'advance':advance,'line_discounts':[(row['regular_price']-row['unit_price'])*row['quantity'] for row in snapshots],'discount_total':sum((row['regular_price']-row['unit_price'])*row['quantity'] for row in snapshots),'quote':quote,'details':{k:v for k,v in values.items() if k not in ['city_record','area_record']},'items':snapshots,'regular_subtotal':sum(row['regular_price']*row['quantity'] for row in snapshots),'subtotal':subtotal,'shipping_fee':shipping,'total':total,'currency':currency}
+    quote=hashlib.sha256(json.dumps({'details':{k:v for k,v in values.items() if k not in ['city_record','zone_record','area_record']},'lines':snapshots,'currency':currency,'shipping':shipping,'advance':advance},sort_keys=True,default=str).encode()).hexdigest()
+    if not issue:return {'amount_paid':paid,'amount_due':total-paid,'advance':advance,'line_discounts':[(row['regular_price']-row['unit_price'])*row['quantity'] for row in snapshots],'discount_total':sum((row['regular_price']-row['unit_price'])*row['quantity'] for row in snapshots),'quote':quote,'details':{k:v for k,v in values.items() if k not in ['city_record','zone_record','area_record']},'items':snapshots,'regular_subtotal':sum(row['regular_price']*row['quantity'] for row in snapshots),'subtotal':subtotal,'shipping_fee':shipping,'total':total,'currency':currency}
     if post.get('quote')!=quote:raise ValidationError({'items':control.labels()['manual_review_changed']})
     order=Order(user=None,created_by=request.user,source='manual',checkout_key=key,currency=site.shop_currency,subtotal=subtotal,shipping_fee=shipping,total=total,**values)
     order.full_clean();order._commerce_write=True;order.save()

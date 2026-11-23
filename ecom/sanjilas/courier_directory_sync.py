@@ -108,6 +108,8 @@ def _publish(job,request):
             unique_fields=['account','kind','external_id'],update_fields=['name','available','is_active','parent','children_refreshed_at'],batch_size=500)
         parents=dict(CourierLocation.objects.filter(account=account,kind=kind,is_active=True).values_list('external_id','pk'))
     CourierAccount.objects.filter(pk=account.pk).update(cities_refreshed_at=now)
+    from .locations import map_published_directory
+    map_published_directory(account,request)
     job.state='completed';job.stage='done'
     admin.site._registry[CourierAccount].log_change(request,account,
         f'Complete directory refreshed: {job.cities} cities, {job.zones} zones, {job.areas} areas.')

@@ -1,5 +1,18 @@
 # Courier integration
 
+## Order address hierarchy
+
+Checkout and manual invoices use **City → Zone → Area**, with dependent database searches. Zone is a courier-independent model, Area belongs to a Zone and City, and orders retain foreign keys plus city/zone/area text snapshots. Historical City/Area-only orders and invoice history retain their original snapshots; no zone is guessed for them. A city with a zone directory requires a matching zone and area in Django validation. Legacy cities without zone records remain compatible with older clients. Email, postal code and notes remain optional; manual invoice addresses can still be left entirely blank.
+
+Cart drafts retain selected Zone and clear Area for an invalid City/Zone pair without extending stock holds. Manual order creation/amendment uses the same hierarchy and preserves unchanged historical addresses. Invoice, staff order and packaging views include the zone snapshot. Manual catalog searches no longer download a full country address directory; location searches query PostgreSQL only.
+
+`CourierAddressMapping` maps each account's saved courier location to a canonical City, Zone or Area. A complete manual courier-directory refresh creates missing canonical records and mappings from the saved database records. ModelAdmin permissions, querysets, forms, save hooks and audit logging apply; staff need view/add permissions for City, Zone, Area and Courier address mapping in addition to existing courier-directory permissions. Permissions are checked before spending API requests. Existing mappings are preserved. Migration 0081 backfills mappings from already-published courier locations without any API calls and leaves existing orders unchanged.
+
+The courier booking panel preselects the mapped account-specific destination, and booking reuses those IDs from the order's saved address. Mapped destinations cannot silently be changed at booking time; amend the order address instead. Unmapped historical addresses retain the manual courier selection fallback. Courier delivery addresses include the zone snapshot. Both Zone and Courier address mapping are registered with import-export admins and appear in the generated React model directory. Other providers/environments can map their own external IDs to the same canonical address records.
+
+Verification on 23 November 2026: the main 111-test regression suite, an additional 36 protection/tracking/admin checks, and the final 8 focused address tests passed. Frontend build and lint passed, and migration 0081 was applied locally. No courier API import was started. The local published directory currently contains cities but no zones, so the full directory import must complete before its zones/areas can populate customer forms. Live deployment still requires the backend, frontend build and migration 0081; this change did not modify the live server.
+
+
 ## Saved courier location directory
 
 Partial imports are persisted in `sanjilas_courierlocationimport` (`sync_id`, `kind`, `external_id`, `parent_external_id`); job counters and cooldowns are in `sanjilas_courierdirectorysync`. Published dropdown records are in `sanjilas_courierlocation`. The progress panel links to the staged records in Django admin and shows the scheduled resume time while rate limited. Staging is removed after successful publication.

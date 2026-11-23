@@ -618,21 +618,45 @@ class City(models.Model):
     def __str__(self):return self.name
 
 
-class Area(models.Model):
-    city=models.ForeignKey(City,on_delete=models.PROTECT,related_name='areas')
+class Zone(models.Model):
+    city=models.ForeignKey(City,on_delete=models.PROTECT,related_name='zones')
     name=models.CharField(max_length=150)
     is_active=models.BooleanField(default=True)
     class Meta:
         ordering=('city__name','name')
-        constraints=[models.UniqueConstraint(fields=['city','name'],name='area_name_per_city')]
+        constraints=[models.UniqueConstraint(fields=['city','name'],name='zone_name_per_city')]
     def clean(self):
         super().clean()
         if self.pk and self.order_set.exclude(city_record_id=self.city_id).exists():
-            raise ValidationError({'city':'An area used by an order cannot be moved to another city.'})
+            raise ValidationError({'city':'A zone used by an order cannot be moved to another city.'})
+        if self.pk and self.areas.exclude(city_id=self.city_id).exists():
+            raise ValidationError({'city':'Move the related areas before changing this city.'})
     def save(self,*args,**kwargs):
         self.full_clean()
         return super().save(*args,**kwargs)
-    def __str__(self):return f'{self.city} / {self.name}' 
+    def __str__(self):return f'{self.city} / {self.name}'
+
+
+class Area(models.Model):
+    city=models.ForeignKey(City,on_delete=models.PROTECT,related_name='areas')
+    zone=models.ForeignKey(Zone,null=True,blank=True,on_delete=models.PROTECT,related_name='areas')
+    name=models.CharField(max_length=150)
+    is_active=models.BooleanField(default=True)
+    class Meta:
+        ordering=('city__name','name')
+        constraints=[models.UniqueConstraint(fields=['city','name'],condition=models.Q(zone__isnull=True),name='legacy_area_name_per_city'),models.UniqueConstraint(fields=['zone','name'],condition=models.Q(zone__isnull=False),name='area_name_per_zone')]
+    def clean(self):
+        super().clean()
+        if self.zone_id and self.zone.city_id!=self.city_id:
+            raise ValidationError({'zone':'Zone must belong to the selected city.'})
+        if self.pk and self.order_set.exclude(city_record_id=self.city_id).exists():
+            raise ValidationError({'city':'An area used by an order cannot be moved to another city.'})
+        if self.pk and self.order_set.exclude(zone_record_id=self.zone_id).exists():
+            raise ValidationError({'zone':'An area used by an order cannot be moved to another zone.'})
+    def save(self,*args,**kwargs):
+        self.full_clean()
+        return super().save(*args,**kwargs)
+    def __str__(self):return f'{self.zone if self.zone_id else self.city} / {self.name}'
 
 
 class Order(models.Model):
@@ -664,7 +688,9 @@ class Order(models.Model):
     phone = models.CharField(max_length=40, blank=True)
     address = models.TextField(max_length=1000, blank=True)
     city_record=models.ForeignKey(City,null=True,blank=True,on_delete=models.PROTECT)
+    zone_record=models.ForeignKey(Zone,null=True,blank=True,on_delete=models.PROTECT)
     area_record=models.ForeignKey(Area,null=True,blank=True,on_delete=models.PROTECT)
+    zone=models.CharField(max_length=150,blank=True)
     area = models.CharField(max_length=150, blank=True)
     city = models.CharField(max_length=120, blank=True)
     postal_code = models.CharField(max_length=30, blank=True)
@@ -689,6 +715,8 @@ class Order(models.Model):
     def clean(self):
         super().clean()
         if self.area_record_id and self.area_record.city_id!=self.city_record_id:raise ValidationError({'area_record':'Area must belong to the selected city.'})
+        if self.zone_record_id and self.zone_record.city_id!=self.city_record_id:raise ValidationError({'zone_record':'Zone must belong to the selected city.'})
+        if self.area_record_id and self.area_record.zone_id!=self.zone_record_id:raise ValidationError({'area_record':'Area must belong to the selected zone.'})
         if self.status in ['processing','shipped','completed'] and self.review_status in ['pending','rejected']:
             raise ValidationError({'status':'Approve this order review before fulfilment.'})
         if not self._state.adding:
@@ -759,7 +787,36 @@ class CourierLocation(models.Model):
             raise ValidationError('Courier cities cannot have a parent.')
 
     def __str__(self):
-        return f'{self.name} ({self.get_kind_display()})'
+        return f'{self.account} / {self.name} ({self.get_kind_display()})'
+
+
+class CourierAddressMapping(models.Model):
+    location=models.OneToOneField(CourierLocation,on_delete=models.PROTECT,related_name='address_mapping')
+    city=models.ForeignKey(City,null=True,blank=True,on_delete=models.PROTECT)
+    zone=models.ForeignKey(Zone,null=True,blank=True,on_delete=models.PROTECT)
+    area=models.ForeignKey(Area,null=True,blank=True,on_delete=models.PROTECT)
+
+    def clean(self):
+        super().clean()
+        if not self.location_id:return
+        field={'cities':'city','zones':'zone','areas':'area'}[self.location.kind]
+        if not getattr(self,field+'_id') or sum(bool(getattr(self,k+'_id')) for k in ('city','zone','area'))!=1:
+            raise ValidationError('Map exactly one address record matching the courier location type.')
+        if self.location.parent_id:
+            parent=type(self).objects.filter(location_id=self.location.parent_id).first()
+            expected=self.zone.city_id if field=='zone' else self.area.zone_id
+            if not parent or expected!=getattr(parent,('city' if field=='zone' else 'zone')+'_id'):
+                raise ValidationError('Courier mapping must match the saved parent address mapping.')
+        if self.pk and field in ('city','zone'):
+            children=type(self).objects.filter(location__parent=self.location)
+            if field=='city' and children.exclude(zone__city_id=self.city_id).exists():
+                raise ValidationError('Existing child zone mappings must keep the same parent city.')
+            if field=='zone' and children.exclude(area__zone_id=self.zone_id).exists():
+                raise ValidationError('Existing child area mappings must keep the same parent zone.')
+    def save(self,*args,**kwargs):
+        self.full_clean()
+        return super().save(*args,**kwargs)
+    def __str__(self):return f'{self.location} → {self.city or self.zone or self.area}'
 
 
 class CourierDirectorySync(models.Model):

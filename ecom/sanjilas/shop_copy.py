@@ -113,7 +113,7 @@ def shop_labels():
         'pay_today': 'Pay now',
         'remaining_delivery': 'Remaining on delivery',
         'method_dummy': 'Dummy payment',
-        'customer_area':'Area',
+        'customer_area':'Area', 'customer_zone':'Zone', 'search_zone':'Search zone', 'choose_zone':'Choose zone', 'location_zone_first':'Select a zone first.',
         'choose_city':'Choose a city', 'choose_area':'Choose an area', 'required_fields_note':'* Required fields',
         'search_city': 'Type to search cities',
         'search_area': 'Type to search areas',

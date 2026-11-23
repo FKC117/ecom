@@ -96,7 +96,7 @@ def order_detail(request,pk):
         'regular_subtotal':sum(item.regular_price*item.quantity for item in obj.items.all()),
         'discount_total':sum((item.regular_price-item.unit_price)*item.quantity for item in obj.items.all()),
         **payments.summary(obj),'delivery_zone':obj.delivery_zone,'revision':obj.revision,'can_mark_payment':allowed(ma,request,obj,True) and request.user.has_perm('sanjilas.mark_payment'),
-        'customer':obj.customer_name,'email':obj.email,'phone':obj.phone,'address':obj.address,'area':obj.area,'city':obj.city,
+        'customer':obj.customer_name,'email':obj.email,'phone':obj.phone,'address':obj.address,'area':obj.area,'zone':obj.zone,'city':obj.city,
         'postal_code':obj.postal_code,'notes':obj.notes,'created_at':obj.created_at.isoformat(),
         'subtotal':obj.subtotal,'shipping_fee':obj.shipping_fee,'total':obj.total,'currency':obj.currency,
         'statuses':list(Order.Status.choices),'actions':[action for action in transitions[obj.status] if action=='cancelled' or obj.review_status not in ['pending','rejected']] if can_change else [],

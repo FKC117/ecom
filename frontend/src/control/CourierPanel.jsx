@@ -14,7 +14,7 @@ export default function CourierPanel({order, labels:l, packaging=null, onChanged
     const controller=new AbortController()
     controlRequest(base,{signal:controller.signal}).then(result=>{setData(result);if(result.accounts.length===1)setAccount(String(result.accounts[0].id))}).catch(e=>{if(e.name!=='AbortError')setError(e)})
     return()=>controller.abort()
-  },[base])
+  },[base,order.revision])
   async function reload(){setData(await controlRequest(base))}
   async function book(){
     setBusy(true);setError(null)
@@ -42,7 +42,7 @@ export default function CourierPanel({order, labels:l, packaging=null, onChanged
       <form key={`${packaging?.state}-${packaging?.item_weight}-${packaging?.item_quantity}`} className="ops-form" onChange={()=>setConfirm(null)} onSubmit={event=>{event.preventDefault();const body=new FormData(event.currentTarget);if(!locationsReady)return;body.set('expected_version',order.revision);setConfirm(body)}}><div className="control-field-grid">
         <label>{l.courier_account} *<select name="account" required value={account} onChange={e=>{setLocationsReady(false);setAccount(e.target.value);setConfirm(null)}} disabled={busy}><option value="">{l.blank}</option>{data.accounts.map(row=><option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
         {data.fields.filter(field=>!['recipient_city','recipient_zone','recipient_area'].includes(field.name)).map(field=><label key={field.name}>{field.label}{field.required?' *':''}{field.choices.length?<select name={field.name} required={field.required} disabled={busy}>{field.choices.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select>:<input name={field.name} type={field.type} min={field.min??undefined} max={field.max??undefined} step={field.step} maxLength={field.max_length??undefined} readOnly={!!packaging&&['item_weight','item_quantity'].includes(field.name)} defaultValue={field.name==='item_weight'?(packaging?.item_weight||'0.5'):field.name==='item_quantity'?(packaging?.item_quantity||'1'):undefined} required={field.required} disabled={busy}/>}</label>)}
-      <CourierLocations key={`${account}-${order.city}`} account={account} fields={data.fields} order={order} labels={l} busy={busy} onReady={setLocationsReady}/></div><p>{l.courier_amount}: {order.amount_due}</p><button className="control-button primary" disabled={busy||!account||!locationsReady}>{l.courier_book}</button></form>
+      <CourierLocations key={`${account}-${order.city}-${JSON.stringify(data.destinations?.[account]||{})}`} account={account} fields={data.fields} destination={data.destinations?.[account]||{}} order={order} labels={l} busy={busy} onReady={setLocationsReady}/></div><p>{l.courier_amount}: {order.amount_due}</p><button className="control-button primary" disabled={busy||!account||!locationsReady}>{l.courier_book}</button></form>
       {confirm&&<div className="ops-status-confirm"><p>{l.courier_confirm_help}</p><p>{data.accounts.find(row=>String(row.id)===confirm.get('account'))?.name} · {l.courier_amount}: {order.amount_due}</p><div className="control-toolbar"><button className="control-button primary" disabled={busy||!locationsReady} onClick={book}>{busy?l.loading:l.courier_confirm}</button><button className="control-button" disabled={busy} onClick={()=>setConfirm(null)}>{l.cancel}</button></div></div>}
 
     </>}</>}

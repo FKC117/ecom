@@ -20,13 +20,13 @@ function useLocations(account,kind,parent){
 
 const normalize=value=>(value||'').normalize('NFKC').trim().toLocaleLowerCase()
 
-export default function CourierLocations({account,fields,order,labels:l,busy,onReady}){
+export default function CourierLocations({account,fields,order,labels:l,busy,onReady,destination={}}){
   const [chosenCity,setCity]=useState(null)
-  const [zone,setZone]=useState('')
-  const [area,setArea]=useState('')
+  const [zone,setZone]=useState(destination.recipient_zone?String(destination.recipient_zone):'')
+  const [area,setArea]=useState(destination.recipient_area?String(destination.recipient_area):'')
   const cities=useLocations(account,'cities')
   const matches=cities.rows.filter(row=>normalize(row.name)===normalize(order.city)&&row.available)
-  const city=chosenCity??(matches.length===1?String(matches[0].id):'')
+  const city=chosenCity??(destination.recipient_city?String(destination.recipient_city):matches.length===1?String(matches[0].id):'')
   const zones=useLocations(account,'zones',city)
   const areas=useLocations(account,'areas',zone)
   const ready=!!city&&!!zone&&!cities.loading&&!zones.loading&&!areas.loading&&!cities.error&&!zones.error&&!areas.error

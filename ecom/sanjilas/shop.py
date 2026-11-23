@@ -112,6 +112,9 @@ class CheckoutForm(forms.Form):
     phone=forms.CharField(max_length=40)
     address=forms.CharField(max_length=1000)
     area=forms.CharField(max_length=150)
+    # Legacy cities without a zone directory remain compatible; resolve() requires
+    # a valid zone as soon as the city has canonical zone records.
+    zone=forms.CharField(max_length=150,required=False)
     city=forms.CharField(max_length=120)
     postal_code=forms.CharField(max_length=30,required=False)
     notes=forms.CharField(max_length=1000,required=False)
@@ -128,7 +131,7 @@ class CheckoutForm(forms.Form):
             data['phone'] = normalize_phone(data['phone'])
         if 'city' in data and 'area' in data:
             from .locations import resolve
-            data.update(resolve(data['city'],data['area']))
+            data.update(resolve(data['city'],data['area'],zone=data.get('zone')))
         return data
 
 
@@ -195,7 +198,7 @@ def invoice(request, order_id):
             return fail('shop_unavailable',404)
     data=order_data(order)
     data.update(invoice_reference=order.reference.replace('ORD-','INV-',1),customer=order.customer_name,
-                email=order.email,phone=order.phone,address=order.address,area=order.area,city=order.city,postal_code=order.postal_code)
+                email=order.email,phone=order.phone,address=order.address,area=order.area,zone=order.zone,city=order.city,postal_code=order.postal_code)
     for row in data['items']:
         row['discount_amount']=(row['regular_price']-row['unit_price'])*row['quantity']
     data['discount_total']=sum((item.regular_price-item.unit_price)*item.quantity for item in order.items.all())
@@ -231,10 +234,13 @@ def save_draft(request):
         value=data.get(name,'')
         if not isinstance(value,str) or len(value)>limit:return fail('shop_invalid')
         clean[name]=value
-    city_value=data.get('city');area_value=data.get('area')
+    from .models import Zone
+    city_value=data.get('city');zone_value=data.get('zone');area_value=data.get('area')
     city=City.objects.filter(pk=city_value.get('id'),is_active=True).first() if isinstance(city_value,dict) and isinstance(city_value.get('id'),int) else None
-    area=Area.objects.filter(pk=area_value.get('id'),city=city,is_active=True).first() if city and isinstance(area_value,dict) and isinstance(area_value.get('id'),int) else None
-    clean.update(city={'id':city.pk,'name':city.name} if city else None,area={'id':area.pk,'name':area.name} if area else None,
+    zone=Zone.objects.filter(pk=zone_value.get('id'),city=city,is_active=True).first() if city and isinstance(zone_value,dict) and isinstance(zone_value.get('id'),int) else None
+    area=Area.objects.filter(pk=area_value.get('id'),city=city,zone=zone,is_active=True).first() if city and isinstance(area_value,dict) and isinstance(area_value.get('id'),int) else None
+    if city and zone is None and city.zones.filter(is_active=True).exists():area=None
+    clean.update(city={'id':city.pk,'name':city.name} if city else None,zone={'id':zone.pk,'name':zone.name} if zone else None,area={'id':area.pk,'name':area.name} if area else None,
                  payment_method=data.get('payment_method') if data.get('payment_method') in ['cod','delivery_advance','pay_now'] else 'cod',checkout_open=data.get('checkout_open') is True)
     cart.checkout_draft=clean;cart.draft_expires_at=expiry;cart.save(update_fields=['checkout_draft','draft_expires_at'])
     if clean['checkout_open']:

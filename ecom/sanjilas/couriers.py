@@ -154,7 +154,7 @@ def pathao_payload(order, account, cleaned, merchant_id):
     if summary(order)['simulated']:
         raise ValidationError('Orders with simulated payments cannot be booked.')
     phone = normalize_phone(order.phone)
-    address = ', '.join(part.strip() for part in (order.address, order.area, order.city, order.postal_code) if part.strip())
+    address = ', '.join(part.strip() for part in (order.address, order.area, order.zone, order.city, order.postal_code) if part.strip())
     if not 3 <= len(order.customer_name.strip()) <= 100 or not 10 <= len(address) <= 220:
         raise ValidationError('Pathao requires a recipient name of 3–100 characters and a full address of 10–220 characters.')
     due = summary(order)['amount_due']

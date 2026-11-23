@@ -36,6 +36,13 @@ def database_choices(account, kind, parent=None, request=None):
 
 def can_refresh(request, account):
     ma = admin.site._registry[CourierLocation]
+    from .models import City,Zone,Area,CourierAddressMapping
+    # Check before fetching the directory, so a staff account cannot spend the
+    # entire API import only to discover it cannot publish the address mappings.
+    for model in (City,Zone,Area,CourierAddressMapping):
+        address_admin=admin.site._registry[model]
+        if not address_admin.has_module_permission(request) or not address_admin.has_view_or_change_permission(request) or not address_admin.has_add_permission(request):
+            return False
     return (allowed(admin.site._registry[CourierAccount],request,account,True)
             and ma.has_module_permission(request) and ma.has_change_permission(request))
 

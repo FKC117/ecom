@@ -60,7 +60,7 @@ def detail(request, pk):
         'can_pack':order.status == 'processing' and not order.shipments.filter(environment='live').exclude(state='failed').exists(),
         'can_change':request.user.has_perm('sanjilas.change_packagingtask') and allowed(admin.site._registry[Order], request, order, True),
         'order':{'id':str(order.pk), 'reference':order.reference, 'revision':order.revision, 'status':order.status,
-                 'customer':order.customer_name, 'address':order.address, 'area':order.area, 'city':order.city,
+                 'customer':order.customer_name, 'address':order.address, 'area':order.area, 'zone':order.zone, 'city':order.city,
                  'phone':order.phone, 'notes':order.notes, **payments.summary(order)},
         'item_weight':task.item_weight, 'item_quantity':task.item_quantity,
         'items':[{'name':i.product_name, 'variant':i.variant_name, 'sku':i.sku, 'quantity':i.quantity} for i in items]})

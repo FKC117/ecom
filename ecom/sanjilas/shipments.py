@@ -81,9 +81,12 @@ def detail(request, pk):
                'step': '0.01' if isinstance(field, forms.DecimalField) else '1',
                'max_length': getattr(field, 'max_length', None)}
               for name, field in BookingForm.base_fields.items() if name not in ('account', 'expected_version')]
+    from .locations import courier_destination
+    accounts = visible_accounts(request)
     return JsonResponse({'rows': rows, 'fields': fields, 'can_book': can_book(request, order),
+                         'destinations':{str(row.pk):courier_destination(order,row) for row in accounts},
                          'can_refresh': request.user.has_perm('sanjilas.change_shipment'),
-                         'accounts': [{'id': row.pk, 'name': str(row), 'environment': row.environment} for row in visible_accounts(request)]})
+                         'accounts': [{'id': row.pk, 'name': str(row), 'environment': row.environment} for row in accounts]})
 
 
 @control.operator_required
@@ -103,6 +106,13 @@ def book(request, pk):
         account = scoped(request, CourierAccount, data['account'])
         if not account.is_active:
             raise ValidationError('This courier account is inactive.')
+        from .locations import courier_destination
+        mapped = courier_destination(order,account)
+        if mapped:
+            for field,value in mapped.items():
+                if data.get(field) and data[field]!=value:
+                    raise ValidationError('Courier destination must match the order address. Amend the address before booking.')
+                data[field]=value
         if order.revision != data['expected_version']:
             raise ValidationError(control.labels()['invoice_stale'])
         client = adapter(account)
