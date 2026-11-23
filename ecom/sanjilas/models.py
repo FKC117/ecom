@@ -773,6 +773,9 @@ class CourierDirectorySync(models.Model):
     processed_cities = models.PositiveIntegerField(default=0)
     processed_zones = models.PositiveIntegerField(default=0)
     last_error = models.CharField(max_length=300,blank=True)
+    next_attempt_at = models.DateTimeField(default=timezone.now)
+    request_interval = models.PositiveIntegerField(default=5)
+    rate_limit_hits = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

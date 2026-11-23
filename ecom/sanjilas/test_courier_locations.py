@@ -57,7 +57,9 @@ class CourierLocationTests(TestCase):
 
     def run_import(self):
         from .courier_directory_sync import process_one
+        from .models import CourierDirectorySync
         for _ in range(30):
+            CourierDirectorySync.objects.filter(state__in=['queued','running']).update(next_attempt_at=timezone.now())
             if not process_one(): return
         self.fail('Import did not finish')
 
@@ -102,7 +104,7 @@ class CourierLocationTests(TestCase):
         self.run_import()
         self.assertEqual(CourierDirectorySync.objects.get().state,'completed')
         self.assertEqual(cities.call_count,3)
-        self.assertEqual([call.args[0] for call in sleep.call_args_list],[1,2])
+        self.assertEqual([call.args[0] for call in sleep.call_args_list],[5,5])
 
     @patch('sanjilas.courier_directory_sync.time.sleep')
     @patch.object(Pathao,'cities',side_effect=CourierError('Timeout',retryable=True))
@@ -116,6 +118,52 @@ class CourierLocationTests(TestCase):
         self.assertEqual(cities.call_count,3)
         self.city.refresh_from_db();self.assertTrue(self.city.is_active)
 
+    @patch.object(Pathao,'cities',side_effect=[CourierError('Rate limit',http_status=429,retry_after=120),{'data':{'data':[{'city_id':4,'city_name':'New City'}]}}])
+    @patch.object(Pathao,'zones',return_value={'data':{'data':[]}})
+    def test_429_persists_cooldown_and_resumes_without_restarting(self,zones,cities):
+        from .models import CourierDirectorySync
+        from .courier_directory_sync import process_one
+        from datetime import timedelta
+        url=f'/api/control/courier-directory/{self.account.pk}/refresh/'
+        self.client.post(url)
+        before=timezone.now()
+        process_one()
+        job=CourierDirectorySync.objects.get()
+        self.assertEqual(job.state,'running')
+        self.assertGreaterEqual(job.next_attempt_at,before+timedelta(seconds=120))
+        self.assertEqual(job.request_interval,10)
+        self.assertFalse(process_one())
+        self.assertEqual(cities.call_count,1)
+        self.client.post(url)
+        job.refresh_from_db()
+        self.assertGreaterEqual(job.next_attempt_at,before+timedelta(seconds=120))
+        self.run_import()
+        job.refresh_from_db();self.assertEqual(job.state,'completed')
+        self.assertEqual(cities.call_count,2)
+
+    @patch.object(Pathao,'cities',return_value={'data':{'data':[{'city_id':4,'city_name':'New City'}]}})
+    @patch.object(Pathao,'zones',return_value={'data':{'data':[]}})
+    def test_successful_requests_are_paced(self,zones,cities):
+        from .models import CourierDirectorySync
+        from .courier_directory_sync import process_one
+        self.client.post(f'/api/control/courier-directory/{self.account.pk}/refresh/')
+        process_one()
+        self.assertGreater(CourierDirectorySync.objects.get().next_attempt_at,timezone.now())
+        self.assertFalse(process_one())
+        zones.assert_not_called()
+        self.run_import()
+        self.assertEqual(CourierDirectorySync.objects.get().state,'completed')
+
+    @patch('sanjilas.couriers.build_opener')
+    def test_retry_after_header_is_preserved(self,opener):
+        from urllib.error import HTTPError
+        opener.return_value.open.side_effect=HTTPError('https://example.invalid',429,'Rate limited',{'Retry-After':'180'},None)
+        with self.assertRaises(CourierError) as caught:
+            Pathao('sandbox').transport('GET','city-list',token='test-token')
+        self.assertEqual(caught.exception.http_status,429)
+        self.assertEqual(caught.exception.retry_after,180)
+        self.assertFalse(caught.exception.retryable)
+
     @patch.object(Pathao,'cities',return_value={'data':{'data':[{'city_id':4,'city_name':'New City'}]}})
     @patch.object(Pathao,'zones',side_effect=[CourierError('Offline'),{'data':{'data':[]}}])
     def test_retry_resumes_and_duplicate_click_does_not_duplicate_import(self,zones,cities):
@@ -127,6 +175,7 @@ class CourierLocationTests(TestCase):
         self.assertEqual(CourierDirectorySync.objects.count(),1)
         process_one()  # cities staged but not published
         self.assertFalse(CourierLocation.objects.filter(account=self.account,external_id=4).exists())
+        CourierDirectorySync.objects.update(next_attempt_at=timezone.now())
         process_one()  # zones failed
         self.assertEqual(CourierDirectorySync.objects.get().state,'failed')
         self.assertEqual(self.client.post(url).json()['sync']['id'],first)

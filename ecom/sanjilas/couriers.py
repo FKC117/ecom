@@ -2,6 +2,8 @@
 import hashlib
 import json
 from datetime import timedelta
+from email.utils import parsedate_to_datetime
+import math
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, build_opener, HTTPRedirectHandler
@@ -15,11 +17,12 @@ from .models import CourierToken
 
 
 class CourierError(Exception):
-    def __init__(self, message, *, rejected=False, retryable=False, http_status=None):
+    def __init__(self, message, *, rejected=False, retryable=False, http_status=None, retry_after=None):
         super().__init__(message)
         self.rejected = rejected
         self.retryable = retryable
         self.http_status = http_status
+        self.retry_after = retry_after
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -53,7 +56,14 @@ class Pathao:
                 body = json.load(response)
         except HTTPError as error:
             # Do not echo provider bodies: they can contain credentials or customer data.
-            raise CourierError(f'Pathao returned HTTP {error.code}.', rejected=error.code in (400, 401, 403, 404, 422, 429), retryable=error.code in (408,500,502,503,504), http_status=error.code) from None
+            retry_after=None
+            header=error.headers.get('Retry-After') if error.headers else None
+            if header:
+                try: retry_after=max(0,math.ceil(float(header)))
+                except (ValueError,OverflowError):
+                    try: retry_after=max(0,math.ceil((parsedate_to_datetime(header)-timezone.now()).total_seconds()))
+                    except (ValueError,TypeError,OverflowError): pass
+            raise CourierError(f'Pathao returned HTTP {error.code}.', rejected=error.code in (400, 401, 403, 404, 422, 429), retryable=error.code in (408,500,502,503,504), http_status=error.code,retry_after=retry_after) from None
         except (URLError, TimeoutError, OSError, ValueError):
             raise CourierError('Pathao response unavailable. Reconcile before retrying a booking.',retryable=True) from None
         if not isinstance(body, dict) or body.get('type') == 'error' or body.get('code', 200) not in (200, 201, 202):

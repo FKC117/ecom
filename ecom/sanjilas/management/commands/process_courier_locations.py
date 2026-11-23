@@ -1,6 +1,6 @@
 import time
 from django.core.management.base import BaseCommand
-from sanjilas.courier_directory_sync import process_one
+from sanjilas.courier_directory_sync import drain_pending
 
 
 class Command(BaseCommand):
@@ -10,6 +10,6 @@ class Command(BaseCommand):
 
     def handle(self,*args,**options):
         while True:
-            while process_one(): pass
+            drain_pending()
             if not options['watch']: return
             time.sleep(5)

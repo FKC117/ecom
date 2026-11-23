@@ -18,7 +18,9 @@ _worker_lock=threading.Lock()
 
 def status(job):
     return {'id':job.pk,'state':job.state,'state_label':job.get_state_display(),'cities':job.cities,'zones':job.zones,
-            'can_resume':job.state in ('queued','running') and job.updated_at < timezone.now()-timedelta(minutes=2),
+            'can_resume':job.state in ('queued','running') and job.next_attempt_at<=timezone.now() and job.updated_at < timezone.now()-timedelta(minutes=2),
+            'next_attempt_at':job.next_attempt_at,
+            'staging_url':f'/admin/sanjilas/courierlocationimport/?sync__id__exact={job.pk}',
             'areas':job.areas,'processed_cities':job.processed_cities,'processed_zones':job.processed_zones,
             'last_error':job.last_error,'updated_at':job.updated_at}
 
@@ -52,7 +54,7 @@ def start_worker():
     def run():
         try:
             close_old_connections()
-            while process_one(): pass
+            drain_pending()
         except Exception:
             logging.getLogger(__name__).exception('Courier directory worker stopped; pending work remains resumable.')
         finally:
@@ -63,6 +65,15 @@ def start_worker():
         raise
 
 
+def drain_pending():
+    while True:
+        if process_one(): continue
+        upcoming=CourierDirectorySync.objects.filter(state__in=['queued','running']).order_by('next_attempt_at').values_list('next_attempt_at',flat=True).first()
+        if upcoming is None: return
+        # Sleep outside the database transaction; no row lock is held during cooldown.
+        time.sleep(max(1,min(30,(upcoming-timezone.now()).total_seconds())))
+
+
 def _stage(job,kind,parent=None):
     for attempt in range(3):
         try:
@@ -70,13 +81,16 @@ def _stage(job,kind,parent=None):
             break
         except CourierError as error:
             if not error.retryable or attempt==2: raise
-            time.sleep(attempt+1)
+            time.sleep(max(job.request_interval,attempt+1))
     ids=[row['id'] for row in choices]
     if len(ids)!=len(set(ids)) or (kind=='cities' and not choices):
         raise ValidationError('Courier returned an invalid directory. Existing locations remain unchanged.')
     CourierLocationImport.objects.bulk_create([CourierLocationImport(sync=job,kind=kind,external_id=row['id'],
         parent_external_id=parent,name=row['name'],available=row['available']) for row in choices],batch_size=500)
     setattr(job,kind,getattr(job,kind)+len(choices))
+    job.next_attempt_at=timezone.now()+timedelta(seconds=job.request_interval)
+    job.rate_limit_hits=0
+    job.last_error=''
 
 
 def _publish(job,request):
@@ -103,7 +117,7 @@ def _publish(job,request):
 
 def process_one():
     with transaction.atomic():
-        job=CourierDirectorySync.objects.select_for_update(skip_locked=True).filter(state__in=['queued','running']).order_by('created_at').first()
+        job=CourierDirectorySync.objects.select_for_update(skip_locked=True).filter(state__in=['queued','running'],next_attempt_at__lte=timezone.now()).order_by('created_at').first()
         if job is None: return False
         try:
             with transaction.atomic():
@@ -133,6 +147,15 @@ def process_one():
         except Exception as error:
             # Reload counters after the savepoint rollback. Never publish partial data.
             job.refresh_from_db()
+            if isinstance(error,CourierError) and error.http_status==429:
+                job.rate_limit_hits+=1
+                delay=max(error.retry_after or 0,min(900,60*2**min(job.rate_limit_hits-1,4)))
+                job.request_interval=min(60,max(5,job.request_interval*2))
+                job.next_attempt_at=timezone.now()+timedelta(seconds=delay)
+                job.state='running'
+                job.last_error=f'Courier rate limit reached. Waiting {delay} seconds before resuming automatically. Imported progress is saved.'
+                job.save()
+                return True
             if isinstance(error,CourierError):
                 reason=(f'Courier refused the request (HTTP {error.http_status}).' if error.http_status else 'Courier connection failed or timed out.')
             elif isinstance(error,PermissionDenied): reason='Permission to update the courier directory was denied.'
