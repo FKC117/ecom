@@ -8,7 +8,7 @@ from django.db.models.expressions import RawSQL
 from django.db import models
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
-from .control_copy import control_labels
+from .control_copy import all_control_labels as control_labels
 from .shop_copy import shop_labels
 from .image_fields import WebPImageField
 
@@ -719,13 +719,14 @@ class CourierAccount(models.Model):
     environment = models.CharField(max_length=10, choices=[('sandbox', 'Sandbox'), ('live', 'Live')], default='sandbox')
     store_id = models.PositiveIntegerField(help_text='Pickup store ID from this courier environment.')
     is_active = models.BooleanField(default=True)
+    cities_refreshed_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     def clean(self):
         super().clean()
-        if self.pk and self.shipments.exists():
+        if self.pk and (self.shipments.exists() or self.locations.exists() or self.directory_syncs.exists()):
             old = type(self).objects.get(pk=self.pk)
             if (old.provider, old.environment) != (self.provider, self.environment):
-                raise ValidationError('Provider and environment cannot change after a shipment is created.')
+                raise ValidationError('Provider and environment cannot change after shipments, locations or directory imports exist.')
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -733,6 +734,106 @@ class CourierAccount(models.Model):
 
     def __str__(self):
         return f'{self.name} ({self.get_environment_display()})'
+
+
+class CourierLocation(models.Model):
+    account = models.ForeignKey(CourierAccount, on_delete=models.PROTECT, related_name='locations')
+    kind = models.CharField(max_length=10, choices=[('cities','City'), ('zones','Zone'), ('areas','Area')])
+    external_id = models.PositiveIntegerField()
+    name = models.CharField(max_length=250)
+    parent = models.ForeignKey('self', null=True, blank=True, on_delete=models.PROTECT, related_name='children')
+    available = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True)
+    children_refreshed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ('name',)
+        constraints = [models.UniqueConstraint(fields=['account','kind','external_id'], name='courier_location_external_unique')]
+
+    def clean(self):
+        super().clean()
+        expected = {'zones':'cities', 'areas':'zones'}.get(self.kind)
+        if expected and (not self.parent_id or self.parent.kind != expected or self.parent.account_id != self.account_id):
+            raise ValidationError('Courier location must belong to a parent of the same courier account.')
+        if self.kind == 'cities' and self.parent_id:
+            raise ValidationError('Courier cities cannot have a parent.')
+
+    def __str__(self):
+        return f'{self.name} ({self.get_kind_display()})'
+
+
+class CourierDirectorySync(models.Model):
+    account = models.ForeignKey(CourierAccount,on_delete=models.PROTECT,related_name='directory_syncs')
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL,on_delete=models.PROTECT)
+    state = models.CharField(max_length=12,choices=[('queued','Queued'),('running','Running'),('failed','Failed'),('completed','Completed')],default='queued')
+    stage = models.CharField(max_length=10,default='cities')
+    cities = models.PositiveIntegerField(default=0)
+    zones = models.PositiveIntegerField(default=0)
+    areas = models.PositiveIntegerField(default=0)
+    processed_cities = models.PositiveIntegerField(default=0)
+    processed_zones = models.PositiveIntegerField(default=0)
+    last_error = models.CharField(max_length=300,blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+        constraints = [models.UniqueConstraint(fields=['account'],condition=models.Q(state__in=['queued','running']),name='one_active_courier_directory_sync')]
+
+    def __str__(self): return f'{self.account} / {self.state}'
+
+
+class CourierLocationImport(models.Model):
+    sync = models.ForeignKey(CourierDirectorySync,on_delete=models.CASCADE,related_name='records')
+    kind = models.CharField(max_length=10)
+    external_id = models.PositiveIntegerField()
+    parent_external_id = models.PositiveIntegerField(null=True,blank=True)
+    name = models.CharField(max_length=250)
+    available = models.BooleanField(default=True)
+    children_fetched = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['sync','kind','external_id'],name='courier_import_location_unique')]
+        indexes = [models.Index(fields=['sync','kind','children_fetched','external_id'],name='courier_import_pending_idx')]
+
+    def __str__(self): return self.name
+
+
+class PackagingTask(models.Model):
+    order = models.OneToOneField(Order, on_delete=models.PROTECT, related_name='packaging_task')
+    state = models.CharField(max_length=12, choices=[('waiting','Waiting to pack'), ('packed','Packed'), ('handed_over','Handed to courier'), ('cancelled','Cancelled')], default='waiting')
+    packed_revision = models.PositiveIntegerField(null=True, blank=True)
+    item_weight = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    item_quantity = models.PositiveIntegerField(default=1)
+    packed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='packed_orders')
+    packed_at = models.DateTimeField(null=True, blank=True)
+    handed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='handed_orders')
+    handed_at = models.DateTimeField(null=True, blank=True)
+    queued_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('queued_at',)
+
+    def __str__(self):
+        return f'{self.order} / {self.get_state_display()}'
+
+
+class CourierEvent(models.Model):
+    shipment = models.ForeignKey('Shipment', on_delete=models.PROTECT, related_name='events')
+    fingerprint = models.CharField(max_length=64, unique=True)
+    event = models.CharField(max_length=100)
+    consignment_id = models.CharField(max_length=100)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    attempts = models.PositiveIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now)
+    last_error = models.CharField(max_length=300, blank=True)
+    received_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('received_at',)
+
+    def __str__(self):
+        return f'{self.shipment_id} / {self.event}'
 
 
 class CourierToken(models.Model):

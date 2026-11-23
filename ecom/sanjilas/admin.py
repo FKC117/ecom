@@ -1,6 +1,7 @@
 from django.apps import apps
 from django.contrib import admin
 from django import forms
+from django.core.exceptions import PermissionDenied
 from django.db import models
 from import_export.admin import ImportExportModelAdmin
 from .models import SiteSettings, HomePage, Category, Collection, Product, ProductVariant, ProductTag, ProductFeature, ProductImage, Cart, CartItem, Order, OrderItem, InventoryMovement, InvoiceRevision, OrderPayment, CommerceActivity
@@ -216,6 +217,9 @@ class OrderAdmin(TrackingFieldsMixin,ImportExportModelAdmin):
 
     def save_model(self, request, obj, form, change):
         from .commerce import transition_order
+        if obj.status == 'shipped' and hasattr(obj, 'packaging_task') and getattr(request.resolver_match, 'url_name', '') != 'packaging-handover':
+            from django.core.exceptions import ValidationError
+            raise ValidationError('Confirm physical courier handover from the Packaging workspace.')
         transition_order(obj.pk, obj.status, actor=request.user)
 
 
@@ -362,7 +366,49 @@ class CartJourneyAdmin(ReadOnlyCommerceAdmin):
     search_fields = ('cart__user__username',)
 
 
-from .models import CourierAccount, CourierToken, Shipment
+from .models import CourierAccount, CourierToken, Shipment, PackagingTask, CourierEvent, CourierLocation, CourierDirectorySync, CourierLocationImport
+
+
+@admin.register(CourierDirectorySync)
+class CourierDirectorySyncAdmin(ReadOnlyCommerceAdmin):
+    list_display=('account','state','stage','cities','zones','areas','processed_cities','processed_zones','last_error','updated_at')
+    list_filter=('state','account')
+
+
+@admin.register(CourierLocationImport)
+class CourierLocationImportAdmin(ReadOnlyCommerceAdmin):
+    control_menu=False
+    control_parent_field='sync'
+    list_display=('sync','kind','external_id','name','children_fetched')
+
+
+@admin.register(CourierLocation)
+class CourierLocationAdmin(ReadOnlyCommerceAdmin):
+    list_display = ('name','kind','account','parent','available','is_active','children_refreshed_at')
+    list_filter = ('account','kind','is_active')
+    search_fields = ('name',)
+    control_workspace = 'courier_locations'
+    actions = None
+
+    def has_change_permission(self,request,obj=None):
+        return (getattr(request.resolver_match,'url_name','') in ('courier-directory-accounts','courier-directory-refresh','sanjilas_courierlocation_changelist','sanjilas_courieraccount_changelist')
+                and request.user.has_perm('sanjilas.change_courierlocation'))
+
+@admin.register(PackagingTask)
+class PackagingTaskAdmin(ReadOnlyCommerceAdmin):
+    list_display = ('order', 'state', 'packed_by', 'packed_at', 'handed_at')
+    list_filter = ('state',)
+    control_workspace = 'packaging'
+
+    def has_change_permission(self, request, obj=None):
+        return (getattr(request.resolver_match, 'url_name', '') in ('packaging-pack', 'packaging-handover')
+                and request.user.has_perm('sanjilas.change_packagingtask'))
+
+
+@admin.register(CourierEvent)
+class CourierEventAdmin(ReadOnlyCommerceAdmin):
+    list_display = ('shipment', 'event', 'received_at', 'processed_at', 'attempts', 'last_error')
+    list_filter = ('processed_at',)
 
 
 @admin.register(CourierAccount)
@@ -370,6 +416,15 @@ class CourierAccountAdmin(ImportExportModelAdmin):
     list_display = ('name', 'provider', 'environment', 'store_id', 'is_active')
     list_filter = ('provider', 'environment', 'is_active')
     search_fields = ('name',)
+    readonly_fields = ('cities_refreshed_at',)
+    actions = ('update_all_locations',)
+
+    @admin.action(description='Update all cities, zones and areas from courier',permissions=['change'])
+    def update_all_locations(self,request,queryset):
+        from .courier_directory_sync import enqueue
+        for account in queryset:
+            enqueue(request,account)
+        self.message_user(request,'Complete location directory update started. View progress in Courier directory syncs.')
 
 
 @admin.register(Shipment)

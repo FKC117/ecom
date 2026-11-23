@@ -25,7 +25,7 @@ from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
 
 from .branding import public_settings
-from .control_copy import control_labels
+from .control_copy import all_control_labels as control_labels
 from .models import SiteSettings
 from .image_fields import WebPImageFormField
 from .images import ACCEPT, image_metadata, limits, prepare_image

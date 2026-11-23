@@ -27,6 +27,11 @@ PATHAO = {
                   for field in ('client_id', 'client_secret', 'username', 'password')}
     for environment in ('sandbox', 'live')
 }
+PATHAO_WEBHOOK = {
+    environment: {field: os.getenv(f'PATHAO_{environment.upper()}_WEBHOOK_{field.upper()}', '')
+                  for field in ('url_token', 'signature_secret', 'integration_secret')}
+    for environment in ('sandbox', 'live')
+}
 
 
 # Quick-start development settings - unsuitable for production

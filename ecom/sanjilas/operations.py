@@ -24,6 +24,12 @@ def directory(request):
     for key,models,label in [('orders',[Order],'ops_orders'),('stock',[Product,ProductVariant],'ops_stock')]:
         if any(allowed(admin.site._registry[model],request) for model in models):
             result.append({'key':key,'name':control.labels()[label],'can_create':key=='orders' and permitted(request)})
+    from .models import PackagingTask
+    if allowed(admin.site._registry[PackagingTask], request):
+        result.append({'key':'packaging', 'name':control.labels()['packaging_title'], 'can_create':False})
+    from .models import CourierAccount, CourierLocation
+    if allowed(admin.site._registry[CourierAccount],request) and allowed(admin.site._registry[CourierLocation],request):
+        result.append({'key':'courier_locations','name':control.labels()['courier_directory_title'],'can_create':False})
     return result
 
 
@@ -77,9 +83,14 @@ def order_detail(request,pk):
     form=ma.get_form(request,obj)(instance=obj)
     can_change=allowed(ma,request,obj,True) and 'status' in form.fields and not form.fields['status'].disabled and 'status' not in ma.get_readonly_fields(request,obj)
     transitions={'placed':['processing','cancelled'],'processing':['shipped','cancelled'],'shipped':['completed'],'completed':[],'cancelled':[]}
+    from .models import PackagingTask
+    has_packaging = PackagingTask.objects.filter(order=obj).exists()
+    if has_packaging:
+        transitions['processing'] = ['cancelled']
     item_admin=admin.site._registry[Order._meta.get_field('items').related_model]
     items=item_admin.get_queryset(request).filter(order=obj) if allowed(item_admin,request) else []
     return control.JsonResponse({'id':str(obj.pk),'reference':obj.reference,'review':review_data(request,obj),'tracking':order_context(request,obj),'status':obj.status,'can_edit_invoice':can_edit(request,obj),'can_history':allowed(admin.site._registry[InvoiceRevision],request),
+        'packaging_available':has_packaging and allowed(admin.site._registry[PackagingTask],request),
         **payments.summary(obj),
         'payments':payments.entries(obj,request),'advance_pending':obj.payment_method=='delivery_advance' and not obj.advance_verified,'advance_reference':obj.advance_reference,'advance_amount':obj.advance_amount,'advance_channel':obj.advance_channel,
         'regular_subtotal':sum(item.regular_price*item.quantity for item in obj.items.all()),

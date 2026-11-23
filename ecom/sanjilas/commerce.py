@@ -225,5 +225,10 @@ def transition_order(order_id, status, user=None, actor=None):
     order.revision+=1
     order._commerce_write = True
     order.save(update_fields=['status','revision'])
+    from .models import PackagingTask
+    if status == 'processing':
+        PackagingTask.objects.get_or_create(order=order)
+    elif status == 'cancelled':
+        PackagingTask.objects.filter(order=order).update(state='cancelled')
     InvoiceRevision.objects.create(order=order,version=order.revision,actor=actor or user,reason=f"Status: {order.get_status_display()}",before=before,after=snapshot(order))
     return order

@@ -172,3 +172,28 @@ def control_labels():
         'tracking_event': 'Activity',
         'tracking_status': 'HTTP status',
     }
+
+
+def packaging_labels():
+    return {
+        'courier_directory_title':'Courier locations',
+        'courier_directory_help':'Booking uses saved locations from our database. One update imports every city, all its zones and all their areas.',
+        'courier_directory_all':'Update all cities, zones and areas',
+        'courier_directory_progress':'Directory update progress',
+        'courier_directory_cities':'Update cities from courier', 'courier_directory_zones':'Update zones from courier',
+        'courier_directory_areas':'Update areas from courier', 'courier_directory_confirm':'Import the complete city, zone and area directory from the courier? Existing saved locations remain available until the import finishes.',
+        'courier_directory_saved':'Location directory updated.', 'courier_directory_count':'Saved records',
+        'packaging_title':'Packaging', 'packaging_intro':'Processing orders arrive here automatically. Check items, pack, book the courier, print the parcel label and confirm physical handover.',
+        'packaging_open':'Pack this order', 'packaging_packed':'Confirm packed', 'packaging_check':'I checked the items and quantities against this order.',
+        'packaging_weight':'Packed parcel weight (kg)', 'packaging_parcels':'Number of parcels',
+        'packaging_handover':'Confirm courier handover', 'packaging_handover_confirm':'Confirm the labelled parcel has physically been handed to the courier?',
+        'packaging_label':'Print parcel label', 'packaging_label_title':'Merchant parcel label',
+        'packaging_sandbox':'SANDBOX — TEST PARCEL', 'packaging_recipient':'Deliver to', 'packaging_sender':'Sender',
+        'packaging_label_note':'Merchant dispatch label. Use the courier portal label too if required by the carrier.',
+        'packaging_wait':'Confirm packing before booking the courier.', 'packaging_back':'Back to packaging queue',
+        'packaging_done':'Handed to courier', 'packaging_missing':'No processing orders are waiting for packaging.',
+    }
+
+
+def all_control_labels():
+    return {**control_labels(), **packaging_labels()}

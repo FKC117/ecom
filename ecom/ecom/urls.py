@@ -39,6 +39,7 @@ urlpatterns = [
     path("account/", views.storefront, name="account"),
     path("invoice/<uuid:order_id>/", views.storefront, name="invoice"),
     path("control/", views.storefront, name="react-control"),
+    path('parcel-label/<int:shipment_id>/', views.storefront),
 ]
 
 if settings.DEBUG:

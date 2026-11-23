@@ -21,10 +21,10 @@ class BookingForm(forms.Form):
     expected_version = forms.IntegerField(min_value=1)
     item_weight = forms.DecimalField(min_value=Decimal('0.5'), max_value=10, decimal_places=2, label='Parcel weight (kg)')
     item_quantity = forms.IntegerField(min_value=1, max_value=100, initial=1, label='Number of parcels')
-    delivery_type = forms.TypedChoiceField(choices=[(48, 'Normal delivery'), (12, 'On demand delivery')], coerce=int)
-    recipient_city = forms.IntegerField(required=False, min_value=1, label='Pathao city ID (optional)')
-    recipient_zone = forms.IntegerField(required=False, min_value=1, label='Pathao zone ID (optional)')
-    recipient_area = forms.IntegerField(required=False, min_value=1, label='Pathao area ID (optional)')
+    delivery_type = forms.TypedChoiceField(label='Delivery service', choices=[(48, 'Normal delivery'), (12, 'On demand delivery')], coerce=int)
+    recipient_city = forms.IntegerField(required=False, min_value=1, label='City')
+    recipient_zone = forms.IntegerField(required=False, min_value=1, label='Zone')
+    recipient_area = forms.IntegerField(required=False, min_value=1, label='Area (optional)')
     special_instruction = forms.CharField(required=False, max_length=500, label='Courier instructions')
 
     def clean(self):
@@ -111,6 +111,13 @@ def book(request, pk):
             raise ValidationError('This order already has a shipment in this environment. Refresh or reconcile it before retrying.')
         merchant_id = row.merchant_order_id if row else f'{account.environment}-{uuid.uuid4().hex}'
         payload = client.payload(order, account, data, merchant_id)
+        from .models import PackagingTask
+        task = PackagingTask.objects.filter(order=order).first()
+        if task and (task.state != 'packed' or task.packed_revision != order.revision):
+            raise ValidationError('The packaging team must pack and verify the current invoice before booking.')
+        if task and (task.item_weight != data['item_weight'] or task.item_quantity != data['item_quantity']):
+            raise ValidationError('Courier parcel details must match the packed weight and parcel count.')
+        validate_locations(account, data, request)
         # Tokens are obtained before reserving a booking; auth failures cannot have created an order.
         try:
             client.token()
@@ -172,10 +179,8 @@ def refresh(request, pk, shipment_id):
         if not isinstance(result, dict) or result.get('consignment_id') != consignment or result.get('merchant_order_id') != row.merchant_order_id:
             raise ValidationError('The consignment does not match this shipment merchant reference.')
         row.consignment_id = consignment
-        row.courier_status = str(result.get('order_status', result.get('order_status_slug', '')))[:100]
-        row.state = 'booked'
-        row.last_error = ''
-        row.save()
+        from .courier_webhooks import apply_verified_status
+        apply_verified_status(row, result)
         admin.site._registry[Shipment].log_change(request, row, 'Courier status refreshed / reconciled.')
     return JsonResponse(serialize(row))
 
@@ -184,16 +189,39 @@ def refresh(request, pk, shipment_id):
 @require_GET
 def locations(request, account_id, kind):
     account = scoped(request, CourierAccount, account_id)
-    client = adapter(account)
+    parent = forms.IntegerField(min_value=1).clean(request.GET.get('parent')) if kind in ('zones','areas') else None
+    from .courier_directory import database_choices
+    return JsonResponse({'choices':database_choices(account, kind, parent, request)})
+
+
+def fetch_location_choices(client, kind, parent=None):
+    if kind not in ('cities','zones','areas','stores'):
+        raise ValidationError('Unknown courier location list.')
     try:
-        if kind == 'stores': result = client.stores()
-        elif kind == 'cities': result = client.cities()
-        elif kind == 'zones': result = client.zones(forms.IntegerField(min_value=1).clean(request.GET.get('parent')))
-        elif kind == 'areas': result = client.areas(forms.IntegerField(min_value=1).clean(request.GET.get('parent')))
-        else: raise ValidationError('Unknown courier lookup.')
-    except CourierError as error:
-        raise ValidationError(str(error)) from None
-    return JsonResponse(result)
+        result = getattr(client, kind)(parent) if kind in ('zones','areas') else getattr(client, kind)()
+        rows = result['data']['data']
+        if not isinstance(rows, list): raise ValueError
+        prefix = {'cities':'city','zones':'zone','areas':'area','stores':'store'}[kind]
+        choices = []
+        for row in rows:
+            value = int(row[f'{prefix}_id'])
+            name = row[f'{prefix}_name']
+            if value < 1 or not isinstance(name, str) or not name.strip(): raise ValueError
+            available = row.get('home_delivery_available', True) if kind == 'areas' else row.get('is_active', True)
+            choices.append({'id':value, 'name':name.strip(), 'available':available not in (False, 0, '0')})
+    except CourierError:
+        raise
+    except (KeyError, TypeError, ValueError):
+        raise ValidationError('Courier locations could not be loaded. Please retry.') from None
+    return choices
+
+
+def validate_locations(account, data, request=None):
+    from .courier_directory import database_choices
+    for field, kind, parent in [('recipient_city','cities',None), ('recipient_zone','zones',data.get('recipient_city')), ('recipient_area','areas',data.get('recipient_zone'))]:
+        selected = data.get(field)
+        if selected and not any(row['id'] == selected and row['available'] for row in database_choices(account, kind, parent, request)):
+            raise ValidationError({field:'Select an available location belonging to the selected city or zone.'})
 
 
 def guard_live_changes(order, allow_completed=False):

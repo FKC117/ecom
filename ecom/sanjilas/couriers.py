@@ -15,9 +15,11 @@ from .models import CourierToken
 
 
 class CourierError(Exception):
-    def __init__(self, message, *, rejected=False):
+    def __init__(self, message, *, rejected=False, retryable=False, http_status=None):
         super().__init__(message)
         self.rejected = rejected
+        self.retryable = retryable
+        self.http_status = http_status
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -51,9 +53,9 @@ class Pathao:
                 body = json.load(response)
         except HTTPError as error:
             # Do not echo provider bodies: they can contain credentials or customer data.
-            raise CourierError(f'Pathao returned HTTP {error.code}.', rejected=error.code in (400, 401, 403, 404, 422, 429)) from None
+            raise CourierError(f'Pathao returned HTTP {error.code}.', rejected=error.code in (400, 401, 403, 404, 422, 429), retryable=error.code in (408,500,502,503,504), http_status=error.code) from None
         except (URLError, TimeoutError, OSError, ValueError):
-            raise CourierError('Pathao response unavailable. Reconcile before retrying a booking.') from None
+            raise CourierError('Pathao response unavailable. Reconcile before retrying a booking.',retryable=True) from None
         if not isinstance(body, dict) or body.get('type') == 'error' or body.get('code', 200) not in (200, 201, 202):
             raise CourierError('Pathao returned an unexpected response.')
         return body

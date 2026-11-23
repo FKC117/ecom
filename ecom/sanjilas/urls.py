@@ -3,9 +3,19 @@ from django.urls import path
 
 from . import views, control, shop, operations, manual_invoices, invoice_edits
 from . import shipments
+from . import packaging, courier_webhooks
+from . import courier_directory
 
 app_name = "sanjilas"
 urlpatterns = [
+    path('control/courier-directory/',courier_directory.accounts,name='courier-directory-accounts'),
+    path('control/courier-directory/<int:account_id>/refresh/',courier_directory.refresh,name='courier-directory-refresh'),
+    path('couriers/pathao/webhook/<str:environment>/<str:token>/', courier_webhooks.pathao),
+    path('control/operations/packaging/', packaging.queue),
+    path('control/operations/packaging/<uuid:pk>/', packaging.detail),
+    path('control/operations/packaging/<uuid:pk>/pack/', packaging.pack, name='packaging-pack'),
+    path('control/operations/packaging/<uuid:pk>/handover/', packaging.handover, name='packaging-handover'),
+    path('control/parcel-label/<int:shipment_id>/', packaging.label),
     path('control/couriers/<int:account_id>/<str:kind>/', shipments.locations),
     path('control/operations/orders/<uuid:pk>/courier/', shipments.detail),
     path('control/operations/orders/<uuid:pk>/courier/book/', shipments.book, name='courier-book'),

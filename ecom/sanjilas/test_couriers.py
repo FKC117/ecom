@@ -57,7 +57,7 @@ class CourierTests(TestCase):
         self.assertEqual(Shipment.objects.get().environment, 'sandbox')
 
     @patch.object(Pathao, 'token', return_value='token')
-    @patch.object(Pathao, 'book', side_effect=CourierError('Timed out'))
+    @patch.object(Pathao, 'book', side_effect=CourierError('Timed out',retryable=True))
     def test_uncertain_result_is_persistent_and_not_retried(self, book, token):
         self.assertEqual(self.booking().status_code, 409)
         self.assertEqual(Shipment.objects.get().state, 'uncertain')
