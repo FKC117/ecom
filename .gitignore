@@ -11,4 +11,6 @@ ecom/staticfiles/
 *.sqlite3
 AGENTS.md
 outputs/
+logs/*
+!logs/.gitkeep
 deploy/

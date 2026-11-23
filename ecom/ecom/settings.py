@@ -63,6 +63,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "sanjilas.logging_config.RequestLoggingMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -189,3 +190,34 @@ IMAGE_WEBP_VARIANT_QUALITY = 84
 # Only list proxy addresses/networks that can actually connect to Django.
 COMMERCE_TRUSTED_PROXIES = [value.strip() for value in os.getenv('COMMERCE_TRUSTED_PROXIES','').split(',') if value.strip()]
 COMMERCE_TRACKING_RETENTION_DAYS = int(os.getenv('COMMERCE_TRACKING_RETENTION_DAYS','30'))
+
+# Keep logs outside static/media. WatchedFileHandler supports multiple server
+# workers and external logrotate (rename/create, not copytruncate).
+LOG_DIR = Path(os.getenv('LOG_DIR', str(BASE_DIR.parent / 'logs')))
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {'json': {'()': 'sanjilas.logging_config.JsonFormatter'}},
+    'handlers': {
+        name: {
+            'class': 'logging.handlers.WatchedFileHandler',
+            'filename': str(LOG_DIR / filename),
+            'formatter': 'json',
+            'level': level,
+            'encoding': 'utf-8',
+        }
+        for name, filename, level in (
+            ('application', 'application.log', 'INFO'),
+            ('errors', 'errors.log', 'ERROR'),
+            ('requests', 'requests.log', 'INFO'),
+        )
+    },
+    'root': {'handlers': ['application', 'errors'], 'level': 'INFO'},
+    'loggers': {
+        'django': {'handlers': ['application', 'errors'], 'level': 'INFO', 'propagate': False},
+        'django.server': {'handlers': [], 'propagate': False},
+        'django.db.backends': {'handlers': [], 'propagate': False, 'level': 'CRITICAL'},
+        'sanjilas.requests': {'handlers': ['requests', 'errors'], 'level': 'INFO', 'propagate': False},
+    },
+}
