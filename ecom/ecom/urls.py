@@ -20,8 +20,10 @@ from django.conf import settings
 from django.conf.urls.static import static
 from sanjilas import views
 from sanjilas import seo
+from sanjilas import courier_webhooks
 
 urlpatterns = [
+    path('shipping/api/webhook/pathao/',courier_webhooks.pathao,{'environment':'live'},name='pathao-live-webhook'),
     path("sitemap.xml", seo.sitemap_index, name="sitemap"),
     path("sitemap/", views.storefront, name="sitemap-html"),
     path("sitemap-<int:number>.xml", seo.sitemap_page, name="sitemap-page"),

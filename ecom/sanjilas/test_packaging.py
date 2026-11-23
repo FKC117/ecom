@@ -125,6 +125,35 @@ class PackagingTests(TestCase):
         self.order.refresh_from_db()
         self.assertEqual(self.order.status, 'processing')
 
+    @override_settings(PATHAO_WEBHOOK={'live':{'signature_secret':'merchant-secret'}})
+    def test_public_callback_matches_merchant_panel_and_requires_only_signature(self):
+        from .courier_webhooks import INTEGRATION_RESPONSE
+        url='/shipping/api/webhook/pathao/'
+        client=Client(enforce_csrf_checks=True)
+        body={'event':'webhook_integration'}
+        self.assertEqual(client.head(url).status_code,405)
+        self.assertEqual(client.post(url,body,content_type='application/json').status_code,403)
+        self.assertEqual(client.post(url,body,content_type='application/json',HTTP_X_PATHAO_SIGNATURE='wrong').status_code,403)
+        response=client.post(url,body,content_type='application/json',HTTP_X_PATHAO_SIGNATURE='merchant-secret')
+        self.assertEqual(response.status_code,202)
+        self.assertEqual(response['X-Pathao-Merchant-Webhook-Integration-Secret'],INTEGRATION_RESPONSE)
+
+    @override_settings(PATHAO_WEBHOOK={'live':{'signature_secret':'merchant-secret'}})
+    def test_public_callback_persists_shipment_event_without_changing_status_directly(self):
+        self.processing()
+        row=self.shipment()
+        response=self.client.post('/shipping/api/webhook/pathao/',{'event':'order.delivered',
+            'merchant_order_id':row.merchant_order_id,'consignment_id':row.consignment_id},
+            content_type='application/json',HTTP_X_PATHAO_SIGNATURE='merchant-secret')
+        self.assertEqual(response.status_code,202)
+        self.assertEqual(CourierEvent.objects.get().shipment_id,row.pk)
+        self.order.refresh_from_db();self.assertEqual(self.order.status,'processing')
+
+    @override_settings(PATHAO_WEBHOOK={'live':{'signature_secret':''}})
+    def test_public_callback_stays_closed_without_server_secret(self):
+        self.assertEqual(self.client.post('/shipping/api/webhook/pathao/',{'event':'webhook_integration'},
+            content_type='application/json',HTTP_X_PATHAO_SIGNATURE='').status_code,403)
+
     @patch.object(Pathao, 'info')
     def test_webhook_verifies_current_state_then_completes_without_recording_payment(self, info):
         self.processing()

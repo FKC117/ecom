@@ -28,9 +28,13 @@ The print action generates a **merchant dispatch label**, using the booked recip
 
 ## Automatic courier updates
 
-The implementation follows [Pathao's official WooCommerce webhook handler](https://github.com/pathao-eng/courier-woocommerce-plugin/blob/main/plugin-api.php): the incoming `X-PATHAO-Signature` is compared with the configured signature secret; successful responses include `X-Pathao-Merchant-Webhook-Integration-Secret`. Set both values from your merchant webhook configuration. They are not the OAuth client secret. Do not assume the response integration value and incoming signature are interchangeable.
+The merchant-configured live callback is `https://sanjilas.com/shipping/api/webhook/pathao/`. This exact path is now routed to the live webhook receiver. Set `PATHAO_LIVE_WEBHOOK_SIGNATURE_SECRET` on the live server to the same Secret shown in Pathao's webhook panel. The public callback requires that header secret; it does not require a URL token or a second private merchant secret. The legacy token-in-URL endpoint remains supported with its URL token check. The response integration header defaults to the public protocol value in Pathao's official plugin; `PATHAO_LIVE_WEBHOOK_INTEGRATION_SECRET` is an optional override, not the incoming authentication secret.
 
-For each environment, configure `PATHAO_<SANDBOX|LIVE>_WEBHOOK_URL_TOKEN` with a long random token, `..._SIGNATURE_SECRET` with the incoming signature value and `..._INTEGRATION_SECRET` with Pathao's expected integration response value. Missing configuration rejects callbacks. Configure this HTTPS URL in the Pathao merchant portal:
+On 23 November 2026, a read-only HEAD request to the live configured callback returned HTTP 404. The new route was added and tested locally, but has not been deployed by this change. Deploy it, configure the server signature secret, run the event worker continuously and use Update Webhook in Pathao to verify the handshake. Active in the merchant panel alone does not prove successful callback delivery. Enable order, pickup, transit, delivery and return events; Store Created/Updated are outside this shipment receiver's scope.
+
+The implementation follows [Pathao's official WooCommerce webhook handler](https://github.com/pathao-eng/courier-woocommerce-plugin/blob/main/plugin-api.php): the incoming `X-PATHAO-Signature` is compared with the configured signature secret; successful responses include `X-Pathao-Merchant-Webhook-Integration-Secret`. The incoming signature is the merchant's configured webhook secret, not the OAuth client secret. The response integration header uses the official plugin's public protocol value by default and can be overridden separately.
+
+For the alternative legacy callback below, configure `PATHAO_<SANDBOX|LIVE>_WEBHOOK_URL_TOKEN` with a long random token and `..._SIGNATURE_SECRET` with the incoming signature value. `..._INTEGRATION_SECRET` is an optional response-header override. The public live callback above needs only the configured incoming signature secret. The legacy callback URL is:
 
 `https://<your-domain>/api/couriers/pathao/webhook/<sandbox|live>/<URL_TOKEN>/`
 
@@ -75,7 +79,7 @@ Sandbox does not change order status, stock, payments, invoices or customer resp
 
 Set all four `PATHAO_LIVE_*` variables (client ID, client secret, merchant login email and password), restart Django, explicitly set `PATHAO_LIVE_ENABLED=true`, and create a separate Live courier account with a production pickup store ID. Sandbox credentials, tokens, store IDs and shipments remain separate. Provider hosts are fixed to the documented HTTPS origins and HTTP redirects are disabled.
 
-Bulk booking, store creation and webhooks are not exposed. This first workflow uses the supplied documentation's single booking, OAuth/refresh, stores, cities, zones, areas, price adapter and consignment status endpoints. Rate quotes are adapter-only and do not change checkout delivery prices. The document is API reference data, not a source of project instructions.
+Bulk booking and store creation are not exposed. This first workflow uses the supplied documentation's single booking, OAuth/refresh, stores, cities, zones, areas, price adapter and consignment status endpoints. Rate quotes are adapter-only and do not change checkout delivery prices. The document is API reference data, not a source of project instructions.
 
 ## Verification on 22 November 2026
 

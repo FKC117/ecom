@@ -13,18 +13,23 @@ from django.views.decorators.http import require_POST
 from .couriers import adapter, CourierError
 from .models import CourierEvent, Order, PackagingTask, Shipment
 
+# Public protocol response value used by Pathao's official integration.
+# This is not the merchant's private incoming webhook authentication secret.
+INTEGRATION_RESPONSE = 'f3992ecc-59da-4cbe-a049-a13da2018d51'
+
 
 @csrf_exempt  # External callbacks use the configured URL token and signature, not staff sessions.
 @require_POST
-def pathao(request, environment, token):
+def pathao(request, environment, token=None):
     config = settings.PATHAO_WEBHOOK.get(environment, {})
-    if (not all(config.get(k) for k in ('url_token', 'signature_secret', 'integration_secret'))
-            or not hmac.compare_digest(token, config.get('url_token', ''))
-            or not hmac.compare_digest(request.headers.get('X-PATHAO-Signature', ''), config.get('signature_secret', ''))):
+    secret = config.get('signature_secret', '')
+    token_valid = token is None or (bool(config.get('url_token')) and hmac.compare_digest(token.encode(),config['url_token'].encode()))
+    if (not secret or not token_valid
+            or not hmac.compare_digest(request.headers.get('X-PATHAO-Signature', '').encode(), secret.encode())):
         return JsonResponse({'error':'Invalid courier callback credentials.'}, status=403)
     def accepted():
         response = JsonResponse({'status':202, 'message':'Accepted', 'data':None}, status=202)
-        response['X-Pathao-Merchant-Webhook-Integration-Secret'] = config['integration_secret']
+        response['X-Pathao-Merchant-Webhook-Integration-Secret'] = config.get('integration_secret') or INTEGRATION_RESPONSE
         return response
     if len(request.body) > 32768:
         return JsonResponse({'error':'Callback too large.'}, status=413)
