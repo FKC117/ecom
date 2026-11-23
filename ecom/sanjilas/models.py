@@ -552,7 +552,7 @@ class ProductImage(CatalogRecord):
 
 class Cart(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='shopping_cart')
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='shopping_cart')
     last_ip=models.GenericIPAddressField(null=True,blank=True,editable=False)
     browser_key=models.CharField(max_length=64,blank=True,editable=False,db_index=True)
     user_agent=models.CharField(max_length=512,blank=True,editable=False)
@@ -670,6 +670,7 @@ class Order(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     reference_number = models.PositiveBigIntegerField(unique=True, editable=False, db_default=RawSQL("nextval('sanjilas_order_reference_seq')", ()))
     user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='shop_orders')
+    guest_cart = models.ForeignKey(Cart, null=True, blank=True, editable=False, on_delete=models.PROTECT, related_name='guest_orders')
     checkout_ip=models.GenericIPAddressField(null=True,blank=True,editable=False,db_index=True)
     browser_key=models.CharField(max_length=64,blank=True,editable=False,db_index=True)
     user_agent=models.CharField(max_length=512,blank=True,editable=False)

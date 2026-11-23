@@ -62,12 +62,27 @@ def check_sale(product, item, quantity, cart):
 
 
 def get_cart(user):
+    if isinstance(user, Cart):
+        return user
     return Cart.objects.get_or_create(user=user)[0]
+
+
+def request_cart(request, create=False):
+    """Guest ownership comes exclusively from the server-side session."""
+    if request.user.is_authenticated:
+        return get_cart(request.user) if create else Cart.objects.filter(user=request.user).first()
+    cart_id = request.session.get('guest_cart_id')
+    cart = Cart.objects.filter(pk=cart_id, user__isnull=True).first() if cart_id else None
+    if cart is None and create:
+        cart = Cart.objects.create()
+        request.session['guest_cart_id'] = str(cart.pk)
+    return cart
 
 
 @transaction.atomic
 def set_item(user, product_id, variant_id, quantity, context=None):
     cart = get_cart(user)
+    user = cart.user
     cart = Cart.objects.select_for_update().get(pk=cart.pk)
     product = Product.objects.select_for_update().filter(pk=product_id).first()
     if not product:
@@ -130,10 +145,12 @@ def checkout_quote(rows, currency, shipping_fee):
 @transaction.atomic
 def place_order(user, key, details, quote=None):
     cart = get_cart(user)
+    user = cart.user
     cart = Cart.objects.select_for_update().get(pk=cart.pk)
     existing = Order.objects.filter(checkout_key=key).first()
     if existing:
-        if existing.user_id != user.pk:
+        owns_order = existing.user_id == user.pk if user is not None else existing.user_id is None and existing.guest_cart_id == cart.pk
+        if not owns_order:
             raise ShopError('shop_checkout_conflict')
         return existing
     site = SiteSettings.load()
@@ -167,7 +184,7 @@ def place_order(user, key, details, quote=None):
     if quote is not None and quote != checkout_quote(snapshots,site.shop_currency,shipping):
         raise ShopError('shop_price_changed')
     subtotal = sum((row['line_total'] for row in snapshots),Decimal(0))
-    order = Order(user=user, checkout_key=key, currency=site.shop_currency, subtotal=subtotal,
+    order = Order(user=user, guest_cart=cart if user is None else None, checkout_key=key, currency=site.shop_currency, subtotal=subtotal,
                   shipping_fee=shipping, total=subtotal+shipping, **details)
     order.full_clean()
     order._commerce_write = True
@@ -195,9 +212,11 @@ def place_order(user, key, details, quote=None):
 
 
 @transaction.atomic
-def transition_order(order_id, status, user=None, actor=None):
+def transition_order(order_id, status, user=None, actor=None, guest_cart=None):
     order = Order.objects.select_for_update().get(pk=order_id)
     if user is not None and (order.user_id != user.pk or (order.status != 'placed' and order.status != status)):
+        raise ShopError('shop_cancel_denied',403)
+    if guest_cart is not None and (order.guest_cart_id != guest_cart.pk or (order.status != 'placed' and order.status != status)):
         raise ShopError('shop_cancel_denied',403)
     if order.status == status:
         return order

@@ -57,11 +57,14 @@ class CommerceTrackingMiddleware:
 
     def record(self,request,response,kind,key,ip,agent):
         user=request.user if request.user.is_authenticated and request.user.is_active else None
-        cart=Cart.objects.filter(user=user).first() if user else None
+        from .commerce import request_cart
+        cart=request_cart(request)
         if cart:Cart.objects.filter(pk=cart.pk).update(last_ip=ip,browser_key=key,user_agent=agent,last_activity_at=timezone.now())
         order=None
-        if kind=='checkout' and response.status_code==200 and user:
-            try:order=Order.objects.filter(pk=json.loads(response.content)['order']['id'],user=user).first()
+        if kind=='checkout' and response.status_code==200:
+            try:
+                from .shop import owned_orders
+                order=owned_orders(request).filter(pk=json.loads(response.content)['order']['id']).first()
             except (ValueError,KeyError,TypeError):pass
         if kind!='cart_view' or cache.add('commerce-view:'+key,True,60):
             event=CommerceActivity(user=user,cart=cart,order=order,kind=kind,ip=ip,browser_key=key,user_agent=agent,response_status=response.status_code)

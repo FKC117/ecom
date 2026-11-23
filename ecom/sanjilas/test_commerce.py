@@ -165,6 +165,68 @@ class CommerceTests(TestCase):
         self.checkout()
         self.assertEqual(Cart.objects.get(user=self.user).checkout_draft,{})
 
+    def test_guest_checkout_is_private_and_idempotent(self):
+        guest, stranger = Client(), Client()
+        self.assertFalse(guest.get('/api/shop/cart/').json()['authenticated'])
+        response = guest.post('/api/shop/cart/items/', {'product_id': self.product.pk, 'quantity': 1})
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = {**DETAILS, 'checkout_key': uuid.uuid4(), 'quote': response.json()['quote']}
+        response = guest.post('/api/shop/checkout/', payload)
+        self.assertEqual(response.status_code, 200, response.content)
+        order = Order.objects.get()
+        self.assertIsNone(order.user_id)
+        self.assertEqual(str(order.guest_cart_id), guest.session['guest_cart_id'])
+        self.assertEqual(guest.post('/api/shop/checkout/', payload).json()['order']['id'], str(order.pk))
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock_quantity, 1)
+        self.assertEqual(len(guest.get('/api/shop/orders/').json()['orders']), 1)
+        self.assertEqual(stranger.get('/api/shop/orders/').json()['orders'], [])
+        invoice = f'/api/shop/orders/{order.pk}/invoice/'
+        cancel = f'/api/shop/orders/{order.pk}/cancel/'
+        self.assertEqual(guest.get(invoice).status_code, 200)
+        self.assertEqual(stranger.get(invoice).status_code, 404)
+        self.assertEqual(stranger.post(cancel).status_code, 404)
+        stranger.get('/api/shop/cart/')
+        stranger.post('/api/shop/cart/items/', {'product_id': self.product.pk, 'quantity': 1})
+        self.assertEqual(stranger.post('/api/shop/checkout/', payload).status_code, 409)
+        self.assertEqual(guest.post(cancel).status_code, 200)
+        self.assertEqual(guest.post(cancel).status_code, 200)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock_quantity, 2)
+
+    def test_guest_draft_and_stock_hold_keep_original_deadline(self):
+        import json
+        guest = Client()
+        guest.get('/api/shop/cart/')
+        cart = guest.post('/api/shop/cart/items/', {'product_id': self.product.pk, 'quantity': 2}).json()
+        expiry = CartItem.objects.get().expires_at
+        response = guest.post('/api/shop/cart/draft/', {'expiry': cart['draft_expiry'], 'draft': json.dumps({'customer_name': 'Guest', 'checkout_open': True})})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(guest.get('/api/shop/cart/').json()['draft']['customer_name'], 'Guest')
+        self.assertEqual(Client().get('/api/shop/cart/').json()['draft'], {})
+        self.assertEqual(CartItem.objects.get().expires_at, expiry)
+        with self.assertRaises(ShopError):
+            self.reserve(self.other)
+        self.assertTrue(guest.get('/api/home/').json()['products'][0]['can_purchase'])
+        self.assertFalse(Client().get('/api/home/').json()['products'][0]['can_purchase'])
+        CartItem.objects.update(expires_at=timezone.now()-timedelta(seconds=1))
+        self.assertEqual(guest.get('/api/shop/cart/').json()['draft'], {})
+        self.assertEqual(guest.post('/api/shop/cart/draft/', {'expiry': cart['draft_expiry'], 'draft': '{}'}).status_code, 409)
+
+    def test_guest_csrf_and_dummy_payment(self):
+        guest = Client(enforce_csrf_checks=True)
+        self.assertEqual(guest.post('/api/shop/cart/items/', {}).status_code, 403)
+        token = guest.get('/api/shop/cart/').json()['csrf_token']
+        headers = {'HTTP_X_CSRFTOKEN': token}
+        response = guest.post('/api/shop/cart/items/', {'product_id': self.product.pk, 'quantity': 1}, **headers)
+        self.assertEqual(response.status_code, 200, response.content)
+        site = SiteSettings.load()
+        site.dummy_payments_enabled = True
+        site.save()
+        response = guest.post('/api/shop/checkout/', {**DETAILS, 'checkout_key': uuid.uuid4(), 'quote': response.json()['quote'], 'payment_method': 'pay_now'}, **headers)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['order']['payment_status'], 'paid')
+
     def reserve(self,user=None,quantity=1,variant=None):
         return set_item(user or self.user,self.product.pk,variant.pk if variant else None,quantity)
 
@@ -234,7 +296,7 @@ class CommerceTests(TestCase):
     def test_invoice_is_private_and_uses_order_snapshot_prices(self):
         self.reserve(quantity=2);order=self.checkout()
         url=f'/api/shop/orders/{order.pk}/invoice/'
-        self.assertEqual(self.client.get(url).status_code,401)
+        self.assertEqual(self.client.get(url).status_code,404)
         self.client.force_login(self.other)
         self.assertEqual(self.client.get(url).status_code,404)
         self.client.force_login(self.user)
@@ -339,7 +401,7 @@ class CommerceTests(TestCase):
         client=Client(enforce_csrf_checks=True)
         self.assertEqual(client.post('/api/shop/cart/items/',{}).status_code,403)
         token=client.get('/api/shop/cart/').json()['csrf_token']
-        self.assertEqual(client.post('/api/shop/cart/items/',{},HTTP_X_CSRFTOKEN=token).status_code,401)
+        self.assertEqual(client.post('/api/shop/cart/items/',{},HTTP_X_CSRFTOKEN=token).status_code,400)
         self.reserve();order=self.checkout()
         client.force_login(self.other)
         token=client.get('/api/shop/cart/').json()['csrf_token']

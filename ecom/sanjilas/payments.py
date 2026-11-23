@@ -76,6 +76,7 @@ def append(request,order,row,key):
     if order.payment_method=='delivery_advance' and row.kind=='payment' and row.reference==order.advance_reference and row.method==order.advance_channel and row.amount==order.advance_amount:order.advance_verified=True
     order.payment_status=summary(order)['payment_status'];order.revision+=1;order._commerce_write=True;order.save()
     InvoiceRevision.objects.create(order=order,version=order.revision,actor=request.user,reason=row.notes,before=before,after=snapshot(order))
-    admin.site._registry[OrderPayment].log_addition(request,row,row.notes)
-    ma.log_change(request,order,row.notes)
+    if request.user is not None:
+        admin.site._registry[OrderPayment].log_addition(request,row,row.notes)
+        ma.log_change(request,order,row.notes)
     return summary(order)

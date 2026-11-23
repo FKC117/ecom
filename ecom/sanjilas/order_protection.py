@@ -27,7 +27,7 @@ def normalize_phone(value):
 
 def identities(user, context, phone=''):
     return {key: str(value) for key, value in {
-        'user':user.pk, 'phone':phone, 'browser':context.get('browser_key'), 'ip':context.get('checkout_ip')
+        'user':getattr(user, 'pk', None), 'phone':phone, 'browser':context.get('browser_key'), 'ip':context.get('checkout_ip')
     }.items() if value}
 
 

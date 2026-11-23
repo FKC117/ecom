@@ -185,7 +185,6 @@ export default function Home() {
         {data.product?<>
           <ProductDetail key={data.product.id} standalone product={data.product} categories={categories} site={site} labels={l} onAdd={async(variant,quantity)=>{
             const cart=await shop.refresh()
-            if(!cart.authenticated){setBagOpen(true);return}
             const existing=cart.items.find(item=>item.product_id===data.product.id&&item.variant_id===(variant?.id||null)&&!item.expired)
             try{await shop.mutate('cart/items/',{product_id:data.product.id,variant_id:variant?.id,quantity:(existing?.quantity||0)+quantity});setBagOpen(true)}finally{setAttempt(value=>value+1)}
           }}/>

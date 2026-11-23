@@ -33,7 +33,7 @@ export default function ShoppingBag({shop,labels:l,onChanged,onClose}) {
   const [orders,setOrders]=useState(null)
   const [fields,setFields]=useState({})
   const {cart,busy,error,refresh,mutate,setError}=shop
-  useEffect(()=>{if(cart?.authenticated&&!hydrated.current){hydrated.current=true;setDraft(cart.draft||{});setCheckout(cart.draft?.checkout_open===true)}},[cart])
+  useEffect(()=>{if(cart&&!hydrated.current){hydrated.current=true;setDraft(cart.draft||{});setCheckout(cart.draft?.checkout_open===true)}},[cart])
   useEffect(()=>{if(cart?.draft_expiry&&lastExpiry.current&&cart.draft_expiry!==lastExpiry.current){dirtyDraft.current=false;setDraft(cart.draft||{});setCheckout(cart.draft?.checkout_open===true)}lastExpiry.current=cart?.draft_expiry||null},[cart?.draft_expiry,cart?.draft])
   useEffect(()=>{latestDraft.current={draft:{...draft,checkout_open:checkout},expiry:cart?.draft_expiry}},[draft,checkout,cart?.draft_expiry])
   useEffect(()=>{if(!dirtyDraft.current||!cart?.draft_expiry||view!=='bag')return;setDraftState('draft_saving');const timer=setTimeout(()=>{const body=new FormData();body.set('draft',JSON.stringify({...draft,checkout_open:checkout}));body.set('expiry',cart.draft_expiry);controlRequest('/api/shop/cart/draft/',{method:'POST',body,keepalive:true}).then(()=>setDraftState('draft_saved')).catch(()=>setDraftState('draft_save_error'))},300);return()=>clearTimeout(timer)},[draft,checkout,cart?.draft_expiry,view])
@@ -68,7 +68,7 @@ export default function ShoppingBag({shop,labels:l,onChanged,onClose}) {
   if(!cart)return <div><p role={error?'alert':'status'}>{error||l.cart_loading}</p>{error&&<button className="control-button" onClick={()=>refresh().catch((failure)=>setError(failure.message))}>{l.retry}</button>}</div>
   return <div className="bag-content"><p className="eyebrow">{l.cart}</p><h2>{view==='history'?l.order_history:view==='detail'?l.order_details:view==='confirmation'?l.order_success:l.cart}</h2>
     {error&&<p className="control-error" role="alert">{error}</p>}{draftState==='draft_expired'&&<p className="control-error" role="status">{l.draft_expired}</p>}
-    {!cart.authenticated?<><p>{l.cart_sign_in}</p><a href="/login/?next=bag" className="button button-primary">{l.nav_login}</a></>:<>
+    <>
       {(view==='confirmation'||view==='detail')&&order&&<OrderSummary order={order} labels={l} />}
       {view==='detail'&&order?.status==='placed'&&<button type="button" className="control-button" disabled={busy} onClick={()=>setCancelPending(true)}>{l.cancel_order}</button>}
       {view==='detail'&&order?.status==='placed'&&cancelPending&&<section className="bag-order" role="group" aria-label={l.order_cancel_confirm}><p>{l.order_cancel_confirm}</p><div className="bag-footer-actions"><button type="button" className="control-button" disabled={busy} onClick={()=>setCancelPending(false)}>{l.keep_order}</button><button type="button" className="control-button" disabled={busy} onClick={()=>cancel(order.id)}>{l.confirm_cancel_order}</button></div></section>}
@@ -78,6 +78,6 @@ export default function ShoppingBag({shop,labels:l,onChanged,onClose}) {
       </>}
       {view==='history'&&<section className="bag-history">{orders?.length===0&&<p>{l.orders_empty}</p>}{orders?.map((entry)=><article className="bag-order" key={entry.id}><p>{l.order_number}: <strong>{entry.reference}</strong></p><p>{l.order_status}: {l[`shop_${entry.status}`]}</p>{entry.simulated&&<p>{l.dummy_payment_completed}</p>}<p>{l.total}: <Money amount={entry.total} currency={entry.currency} labels={l} /></p><button type="button" className="control-button" onClick={()=>{setOrder(entry);setCancelPending(false);setView('detail')}}>{l.view_order}</button></article>)}</section>}
       <div className="bag-footer-actions"><button className="control-button" type="button" onClick={onClose}>{l.continue_shopping}</button>{view!=='history'&&<button className="control-button" type="button" onClick={history}>{view==='detail'?l.back_to_orders:l.order_history}</button>}{(view==='history'||view==='detail')&&<button className="control-button" type="button" onClick={()=>setView('bag')}>{l.cart}</button>}</div>
-    </>}
+    </>
   </div>
 }

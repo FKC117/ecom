@@ -1,4 +1,4 @@
-"""Session-authenticated storefront cart/order endpoints; every write uses CSRF."""
+"""Session-owned storefront cart/order endpoints; every write uses CSRF."""
 from . import payments
 from functools import wraps
 
@@ -31,7 +31,7 @@ def customer(view):
     @never_cache
     @wraps(view)
     def wrapped(request, *args, **kwargs):
-        if not request.user.is_authenticated or not request.user.is_active:
+        if request.user.is_authenticated and not request.user.is_active:
             return fail('shop_login_required',401)
         try:
             return view(request,*args,**kwargs)
@@ -55,11 +55,18 @@ def order_data(order):
             'items':list(order.items.values('product_name','variant_name','sku','quantity','regular_price','unit_price','line_total','image_url'))}
 
 
+def owned_orders(request):
+    if request.user.is_authenticated:
+        return Order.objects.filter(user=request.user)
+    cart = commerce.request_cart(request)
+    return Order.objects.filter(guest_cart=cart, user__isnull=True) if cart else Order.objects.none()
+
+
 def cart_data(user,zone="inside"):
     from .delivery import charge,rates
     site = SiteSettings.load()
     shipping=charge(site,zone)
-    cart = Cart.objects.filter(user=user).first()
+    cart = user if isinstance(user, Cart) else Cart.objects.filter(user=user).first()
     rows=[]
     if cart:
         for line in cart.items.select_related('product__category','variant'):
@@ -86,7 +93,7 @@ def cart_data(user,zone="inside"):
 def cart(request):
     authenticated=request.user.is_authenticated and request.user.is_active
     return JsonResponse({'authenticated':authenticated,'csrf_token':get_token(request),'labels':labels(),
-                         **(cart_data(request.user,request.session.get("delivery_zone","inside")) if authenticated else {'items':[]})})
+                         **cart_data(commerce.request_cart(request, create=True),request.session.get("delivery_zone","inside"))})
 
 
 @customer
@@ -100,8 +107,8 @@ def cart_item(request):
     if quantity:
         from .order_protection import preflight
         preflight(request, 'reservation')
-    changed=commerce.set_item(request.user,product,variant,quantity,context=getattr(request,'commerce_context',{}))
-    return JsonResponse({**cart_data(request.user,request.session.get("delivery_zone","inside")), 'analytics_add':getattr(changed,'analytics_add',None)})
+    changed=commerce.set_item(commerce.request_cart(request, create=True),product,variant,quantity,context=getattr(request,'commerce_context',{}))
+    return JsonResponse({**cart_data(commerce.request_cart(request, create=True),request.session.get("delivery_zone","inside")), 'analytics_add':getattr(changed,'analytics_add',None)})
 
 
 class CheckoutForm(forms.Form):
@@ -145,7 +152,7 @@ def checkout(request):
     try: submitted_phone = normalize_phone(request.POST.get('phone',''))
     except ValidationError: submitted_phone = ''
     # Include invalid submissions; only a genuine successful retry skips throttling.
-    if not retry_key or not Order.objects.filter(checkout_key=retry_key,user=request.user).exists():
+    if not retry_key or not owned_orders(request).filter(checkout_key=retry_key).exists():
         preflight(request, 'checkout', submitted_phone)
     form=CheckoutForm(request.POST)
     if not form.is_valid():
@@ -155,22 +162,22 @@ def checkout(request):
     quote=details.pop('quote')
     details['delivery_zone']=details.get('delivery_zone') or request.session.get('delivery_zone','inside')
     details.update(getattr(request,'commerce_context',{}))
-    order=commerce.place_order(request.user,key,details,quote=quote)
-    return JsonResponse({'order':order_data(order),'cart':cart_data(request.user)})
+    order=commerce.place_order(commerce.request_cart(request, create=True),key,details,quote=quote)
+    return JsonResponse({'order':order_data(order),'cart':cart_data(commerce.request_cart(request, create=True))})
 
 
 @customer
 @require_GET
 def orders(request):
-    return JsonResponse({'orders':[order_data(order) for order in Order.objects.filter(user=request.user).prefetch_related('items')[:50]]})
+    return JsonResponse({'orders':[order_data(order) for order in owned_orders(request).prefetch_related('items')[:50]]})
 
 
 @customer
 @require_POST
 def cancel(request, order_id):
-    if not Order.objects.filter(pk=order_id,user=request.user).exists():
+    if not owned_orders(request).filter(pk=order_id).exists():
         return fail('shop_unavailable',404)
-    order=commerce.transition_order(order_id,'cancelled',user=request.user)
+    order=commerce.transition_order(order_id,'cancelled',user=request.user if request.user.is_authenticated else None,guest_cart=commerce.request_cart(request) if not request.user.is_authenticated else None)
     return JsonResponse({'order':order_data(order)})
 
 
@@ -182,7 +189,7 @@ def invoice(request, order_id):
     from .control import active_operator, permissions
     from .models import OrderItem
     from .branding import public_settings
-    order=Order.objects.select_for_update().filter(pk=order_id,user=request.user).first()
+    order=owned_orders(request).select_for_update().filter(pk=order_id).first()
     if order is None:
         ma=admin.site._registry[Order]
         if not active_operator(request.user) or not ma.has_module_permission(request) or not permissions(ma,request)['view']:
@@ -212,7 +219,7 @@ def delivery_area(request):
     zone=request.POST.get('delivery_zone')
     if zone not in ['inside','outside']:return fail('shop_invalid')
     request.session['delivery_zone']=zone
-    return JsonResponse(cart_data(request.user,zone))
+    return JsonResponse(cart_data(commerce.request_cart(request, create=True),zone))
 
 
 @customer
@@ -222,7 +229,8 @@ def save_draft(request):
     import json
     from django.utils.dateparse import parse_datetime
     from .models import City,Area
-    cart=Cart.objects.select_for_update().filter(user=request.user).first()
+    owner_cart=commerce.request_cart(request)
+    cart=Cart.objects.select_for_update().filter(pk=owner_cart.pk).first() if owner_cart else None
     now=timezone.now()
     expiry=cart.items.filter(expires_at__gt=now).order_by('expires_at').values_list('expires_at',flat=True).first() if cart else None
     if not cart or not expiry or parse_datetime(request.POST.get('expiry',''))!=expiry:return fail('shop_expired',409)

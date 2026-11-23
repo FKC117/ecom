@@ -10,6 +10,7 @@ from django.views.decorators.cache import never_cache
 from django.core.paginator import Paginator
 from .images import image_metadata
 from .shop_copy import shop_labels
+from .commerce import request_cart
 
 
 @require_GET
@@ -40,7 +41,7 @@ def home_page(request, slug=None, listing_kind=None, listing_slug=None):
 
     site = SiteSettings.load()
     from .commerce import reserved_quantity
-    customer_cart = Cart.objects.filter(user=request.user).first() if request.user.is_authenticated else None
+    customer_cart = request_cart(request)
 
     def pricing(item):
         free = (item.catalog_free if hasattr(item,'catalog_free') else max(0,item.stock_quantity-reserved_quantity(item,exclude_cart=customer_cart))) if item.track_stock else 0
@@ -190,7 +191,7 @@ def storefront(request, order_id=None, product_slug=None, listing_kind=None, lis
         if listing_status==200:
             query=Product.objects.filter(is_active=True,category__is_active=True)
             if group:query=query.filter(**({'category':group} if listing_kind=='categories' else {'collections':group}))
-            cart=Cart.objects.filter(user=request.user).first() if request.user.is_authenticated else None
+            cart=request_cart(request)
             try:
                 result,_=paginate(annotated(query,SiteSettings.load(),cart),request.GET)
                 if result is None: listing_status=404
