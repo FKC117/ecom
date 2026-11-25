@@ -7,6 +7,7 @@ import { priceText } from './catalogPricing'
 import useShop from './useShop'
 import ShoppingBag from './ShoppingBag'
 import CatalogPage from './CatalogPage'
+import FashionAssistant from './FashionAssistant'
 
 const bootstrap = (() => {
   try { return JSON.parse(document.getElementById('storefront-bootstrap')?.textContent || '{}') } catch { return {} }
@@ -253,6 +254,7 @@ export default function Home() {
       </div>
       <div className="footer-bottom"><p>{site.footer_text}</p><a href="#top">{l.back_top}<span>↑</span></a></div>
     </footer>
+    <FashionAssistant />
 
     <Modal open={bagOpen} onClose={()=>setBagOpen(false)} label={l.cart} closeLabel={l.cart_close} className="bag-dialog">{bagOpen&&<ShoppingBag shop={shop} labels={l} onChanged={()=>setAttempt((value)=>value+1)} onClose={()=>setBagOpen(false)} />}</Modal>
     <Modal open={search} onClose={() => setSearch(false)} label={l.search_open} closeLabel={l.search_close} className="search-dialog">

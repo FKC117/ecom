@@ -22,6 +22,7 @@ class SiteSettingsAdmin(ImportExportModelAdmin):
         ("Checkout & reservations", {"fields": ("low_stock_threshold", "cart_reservation_minutes", "shop_currency", "delivery_inside_dhaka", "delivery_outside_dhaka", "cash_on_delivery_enabled", "dummy_payments_enabled", "delivery_advance_enabled", "delivery_advance_instructions", "delivery_advance_methods")}),
         ("Order protection", {"fields": ("order_protection_enabled", "duplicate_order_minutes", "checkout_attempt_limit", "reservation_attempt_limit", "cart_unit_limit", "order_review_phone_limit", "order_review_ip_limit")}),
         ("React control panel text", {"fields": ("control_labels",)}),
+        ('AI assistants', {'fields': ('ai_admin_enabled', 'ai_chat_enabled', 'ai_model', 'ai_customer_daily_limit', 'ai_guest_daily_limit', 'ai_image_daily_limit', 'ai_burst_limit', 'ai_ip_daily_limit', 'ai_admin_daily_limit', 'ai_store_daily_limit', 'ai_daily_token_budget')}),
         ("SEO", {"fields": ("meta_title", "meta_description", "meta_keywords", "robots")}),
         ("Open Graph / social sharing", {"fields": ("og_title", "og_description", "og_type", "og_image", "og_image_alt")}),
         ("Twitter / X", {"fields": ("twitter_card", "twitter_site", "twitter_title", "twitter_description", "twitter_image", "twitter_image_alt")}),
@@ -453,6 +454,14 @@ class CourierTokenAdmin(ReadOnlyCommerceAdmin):
 
     def has_export_permission(self, request):
         return False
+
+
+from .models import AIUsageCounter, AIProductDraft
+
+
+@admin.register(AIUsageCounter, AIProductDraft)
+class AIRecordAdmin(ReadOnlyCommerceAdmin):
+    pass
 
 
 for model in apps.get_app_config("sanjilas").get_models():

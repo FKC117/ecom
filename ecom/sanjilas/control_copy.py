@@ -176,7 +176,7 @@ def control_labels():
 
 def packaging_labels():
     return {
-        'customer_zone':'Zone', 'search_zone':'Search zone', 'choose_zone':'Choose zone', 'location_zone_first':'Select a zone first.',
+        'customer_zone':'Zone', 'search_zone':'Search zone', 'choose_zone':'Choose zone', 'location_zone_first':'Select a zone first.', 'location_more':'Show more locations',
         'courier_directory_title':'Courier locations',
         'courier_directory_help':'Booking uses saved locations from our database. One update imports every city, all its zones and all their areas.',
         'courier_directory_all':'Update all cities, zones and areas',
@@ -200,4 +200,5 @@ def packaging_labels():
 
 
 def all_control_labels():
-    return {**control_labels(), **packaging_labels()}
+    from .ai_copy import ai_labels
+    return {**control_labels(), **packaging_labels(), **ai_labels()}

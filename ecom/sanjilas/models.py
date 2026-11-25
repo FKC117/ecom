@@ -10,6 +10,7 @@ from django.db import models
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from .control_copy import all_control_labels as control_labels
 from .shop_copy import shop_labels
+from .ai_copy import ai_labels
 from .image_fields import WebPImageField
 
 
@@ -23,6 +24,17 @@ def invoice_terms_default():
 
 
 class SiteSettings(models.Model):
+    ai_admin_enabled = models.BooleanField(default=True)
+    ai_chat_enabled = models.BooleanField(default=False)
+    ai_model = models.CharField(max_length=100, blank=True, help_text='Optional Gemini model override. Blank uses GEMINI_MODEL from the server environment.')
+    ai_customer_daily_limit = models.PositiveIntegerField(default=20)
+    ai_guest_daily_limit = models.PositiveIntegerField(default=10)
+    ai_image_daily_limit = models.PositiveIntegerField(default=2)
+    ai_burst_limit = models.PositiveIntegerField(default=3)
+    ai_ip_daily_limit = models.PositiveIntegerField(default=40)
+    ai_admin_daily_limit = models.PositiveIntegerField(default=50)
+    ai_store_daily_limit = models.PositiveIntegerField(default=100, help_text='Maximum combined Gemini calls per day, including failed attempts.')
+    ai_daily_token_budget = models.PositiveIntegerField(default=200000, help_text='Conservative reserved input/output token allowance shared by both assistants. Not a currency billing cap.')
     meta_pixel_id = models.CharField(max_length=30, blank=True, validators=[RegexValidator(r'^\d+$', 'Enter a numeric Meta Pixel ID.')])
     meta_pixel_enabled = models.BooleanField(default=False, help_text='Send storefront events to Meta. Does not enable advanced matching.')
     google_measurement_id = models.CharField(max_length=30, blank=True, validators=[RegexValidator(r'^G-[A-Z0-9]+$', 'Enter a GA4 measurement ID starting with G-.')])
@@ -122,6 +134,7 @@ class SiteSettings(models.Model):
 
 def homepage_labels():
     return {
+        **ai_labels(),
         **shop_labels(),
         "skip_content": "Skip to content", "navigation": "Main navigation",
         "nav_collections": "Collections", "nav_featured": "The jewellery", "nav_story": "Our story",
@@ -522,6 +535,31 @@ class ProductFeature(CatalogRecord):
 
     def __str__(self):
         return f'{self.product} / {self.name}: {self.value}'
+
+
+class AIUsageCounter(models.Model):
+    key = models.CharField(max_length=180, unique=True)
+    calls = models.PositiveIntegerField(default=0)
+    reserved_tokens = models.PositiveBigIntegerField(default=0)
+    actual_tokens = models.PositiveBigIntegerField(default=0)
+    busy_until = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.key
+
+
+class AIProductDraft(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    payload = models.JSONField(default=dict)
+    product = models.ForeignKey(Product, null=True, blank=True, on_delete=models.SET_NULL)
+    completed = models.BooleanField(default=False)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return str(self.pk)
 
 
 class ProductImage(CatalogRecord):

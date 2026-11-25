@@ -7,6 +7,8 @@ from .images import image_metadata
 def public_settings(settings, request):
     data = {}
     for field in settings._meta.fields:
+        if field.name.startswith('ai_'):
+            continue
         if field.name in {"id", "updated_at", "llms_txt", "llms_full_txt", "control_labels"}:
             continue
         value = getattr(settings, field.name)

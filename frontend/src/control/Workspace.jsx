@@ -30,6 +30,7 @@ function Records({ model, labels: l, navigate, onAuthError }) {
       {model.can_export && <a className="control-button" href={`/api/control/${modelPath(model, 'export/')}`}>{l.export} ↓</a>}
       {model.import_url && <a className="control-button" href={model.import_url} target="_blank" rel="noreferrer" title={l.import_description}>{l.import} ↗</a>}
       {model.permissions.add && <button className="control-button primary" onClick={() => navigate(`/${model.key}/new`)}>＋ {l.add}</button>}
+      {model.key === 'sanjilas.product' && model.permissions.add && <button className="control-button" onClick={() => navigate('/assistant')}>{l.ai_product_title}</button>}
     </div></div>
     <section className="control-records-panel">
       <div className="control-list-tools">{model.searchable ? <form onSubmit={(event) => {event.preventDefault(); setQuery(new FormData(event.currentTarget).get('q') || ''); setPage(1)}}><label className="sr-only" htmlFor="record-search">{l.search}</label><input id="record-search" name="q" type="search" defaultValue={query} placeholder={l.search_placeholder} /><button className="control-button" type="submit">{l.search}</button></form> : <span className="control-muted">{l.records}</span>}<button className="control-button control-refresh" onClick={() => setRevision(revision + 1)} aria-label={l.refresh}>↻</button></div>

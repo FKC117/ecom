@@ -118,7 +118,7 @@ class CheckoutForm(forms.Form):
     email=forms.EmailField(required=False)
     phone=forms.CharField(max_length=40)
     address=forms.CharField(max_length=1000)
-    area=forms.CharField(max_length=150)
+    area=forms.CharField(max_length=150,required=False)
     # Legacy cities without a zone directory remain compatible; resolve() requires
     # a valid zone as soon as the city has canonical zone records.
     zone=forms.CharField(max_length=150,required=False)

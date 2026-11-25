@@ -29,7 +29,7 @@ export default function CourierLocations({account,fields,order,labels:l,busy,onR
   const city=chosenCity??(destination.recipient_city?String(destination.recipient_city):matches.length===1?String(matches[0].id):'')
   const zones=useLocations(account,'zones',city)
   const areas=useLocations(account,'areas',zone)
-  const ready=!!city&&!!zone&&!cities.loading&&!zones.loading&&!areas.loading&&!cities.error&&!zones.error&&!areas.error
+  const ready=!!city&&!!zone&&!cities.loading&&!zones.loading&&!cities.error&&!zones.error&&(!area||(!areas.loading&&!areas.error))
   useEffect(()=>{onReady(ready)},[ready,onReady])
   const selections=[
     {name:'recipient_city',value:city,list:cities,enabled:!!account,required:true,change:value=>{setCity(value);setZone('');setArea('')}},

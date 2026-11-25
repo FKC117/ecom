@@ -48,6 +48,53 @@ class OrderAddressTests(TestCase):
         self.assertEqual(result,[{'id':self.area.pk,'name':'Area A'}])
         transport.assert_not_called()
 
+    @patch.object(Pathao,'transport',side_effect=AssertionError('Browsing must query our database only'))
+    def test_browse_lists_are_parent_scoped_searchable_and_paginated(self,transport):
+        for index in range(24):Zone.objects.create(city=self.city,name=f'Browse {index:02d}')
+        other_city=City.objects.create(name='City B')
+        Zone.objects.create(city=other_city,name='Browse elsewhere')
+        Zone.objects.create(city=self.city,name='Browse hidden',is_active=False)
+        params={'kind':'zone','city':self.city.pk}
+        first=self.client.get('/api/shop/locations/',params).json()
+        second=self.client.get('/api/shop/locations/',{**params,'page':2}).json()
+        self.assertTrue(first['has_more']);self.assertFalse(second['has_more'])
+        self.assertEqual(len(first['results'])+len(second['results']),25)
+        self.assertFalse(set(row['id'] for row in first['results'])&set(row['id'] for row in second['results']))
+        matches=self.client.get('/api/shop/locations/',{**params,'q':'Browse 03'}).json()['results']
+        self.assertEqual([row['name'] for row in matches],['Browse 03'])
+        areas=self.client.get('/api/shop/locations/',{'kind':'area','city':self.city.pk,'zone':self.zone.pk}).json()['results']
+        self.assertEqual(areas,[{'id':self.area.pk,'name':'Area A'}])
+        transport.assert_not_called()
+
+    def test_checkout_and_invoice_allow_missing_area(self):
+        self.client.force_login(self.user);set_item(self.user,self.product.pk,None,1)
+        quote=self.client.get('/api/shop/cart/').json()['quote']
+        response=self.client.post('/api/shop/checkout/',{**self.details,'city':self.city.pk,'zone':self.zone.pk,
+            'quote':quote,'checkout_key':str(uuid.uuid4())})
+        self.assertEqual(response.status_code,200,response.content)
+        order=Order.objects.get()
+        self.assertEqual(order.zone_record_id,self.zone.pk)
+        self.assertIsNone(order.area_record_id);self.assertEqual(order.area,'')
+        invoice=self.client.get(f'/api/shop/orders/{order.pk}/invoice/').json()['order']
+        self.assertEqual(invoice['area'],'');self.assertEqual(invoice['zone'],self.zone.name)
+
+    def test_manual_invoice_allows_missing_area(self):
+        self.client.force_login(self.owner)
+        data={'checkout_key':str(uuid.uuid4()),'customer_name':'Manual customer','shipping_fee':'0','delivery_zone':'custom',
+              'city':self.city.name,'zone':self.zone.name,'items':json.dumps([{'model':'product','id':self.product.pk,'quantity':1}])}
+        preview=self.client.post('/api/control/manual-invoices/preview/',data)
+        self.assertEqual(preview.status_code,200,preview.content)
+        response=self.client.post('/api/control/manual-invoices/issue/',{**data,'quote':preview.json()['quote']})
+        self.assertEqual(response.status_code,200,response.content)
+        self.assertIsNone(Order.objects.get().area_record_id)
+
+    def test_empty_area_keeps_city_zone_courier_mapping(self):
+        account=self.directory()
+        set_item(self.user,self.product.pk,None,1)
+        order=place_order(self.user,uuid.uuid4(),{**self.details,**resolve(self.city.pk,'',zone=self.zone.pk)})
+        destination=courier_destination(order,account)
+        self.assertEqual(destination,{'recipient_city':101,'recipient_zone':102})
+
     def test_checkout_saves_zone_and_invoice_snapshot(self):
         self.client.force_login(self.user)
         set_item(self.user,self.product.pk,None,1)

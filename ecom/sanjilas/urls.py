@@ -5,9 +5,15 @@ from . import views, control, shop, operations, manual_invoices, invoice_edits
 from . import shipments
 from . import packaging, courier_webhooks
 from . import courier_directory
+from . import ai_views
 
 app_name = "sanjilas"
 urlpatterns = [
+    path('shop/assistant/', ai_views.chat_config),
+    path('shop/assistant/chat/', ai_views.chat),
+    path('control/assistant/', ai_views.admin_config),
+    path('control/assistant/draft/', ai_views.product_draft),
+    path('control/assistant/drafts/<uuid:pk>/save/', ai_views.product_save),
     path('control/courier-directory/',courier_directory.accounts,name='courier-directory-accounts'),
     path('control/courier-directory/<int:account_id>/refresh/',courier_directory.refresh,name='courier-directory-refresh'),
     path('couriers/pathao/webhook/<str:environment>/<str:token>/', courier_webhooks.pathao),

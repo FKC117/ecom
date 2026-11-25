@@ -127,7 +127,7 @@ class CommerceTests(TestCase):
         rows=self.client.get('/api/shop/locations/',{'kind':'area','city':dhaka.pk,'q':'mo'}).json()['results']
         self.assertEqual([row['name'] for row in rows],['Dhanmondi','Mohammadpur'])
         self.assertEqual(self.client.get('/api/shop/locations/',{'kind':'area','q':'m'}).json()['results'],[])
-        self.assertEqual(self.client.get('/api/shop/locations/',{'kind':'city','q':''}).json()['results'],[])
+        self.assertIn({'id':dhaka.pk,'name':'Dhaka'},self.client.get('/api/shop/locations/',{'kind':'city','q':''}).json()['results'])
         for i in range(25):Area.objects.create(city=dhaka,name=f'Example {i:02d}')
         self.assertEqual(len(self.client.get('/api/shop/locations/',{'kind':'area','city':dhaka.pk,'q':'e'}).json()['results']),20)
         dhaka.is_active=False;dhaka.save()

@@ -19,6 +19,8 @@ from dotenv import load_dotenv
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-3.5-flash-lite')
 
 # Separate environments prevent accidentally sending sandbox work to production.
 PATHAO_LIVE_ENABLED = os.getenv('PATHAO_LIVE_ENABLED', 'false').lower() in {'true', '1', 'yes'}

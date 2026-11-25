@@ -1,4 +1,35 @@
 /* One shared design system. Palette is selected by Django; mode by the visitor. */
+/* Assistants share the storefront and control palette variables. */
+.ai-admin { padding: clamp(1rem, 3vw, 2rem); max-width: 980px; }
+.ai-form { display: grid; gap: 1rem; margin-block: 1.5rem; }
+.ai-field { display: grid; gap: .45rem; min-width: 0; font-size: .9rem; }
+.ai-field input, .ai-field textarea, .ai-field select { width: 100%; min-width: 0; padding: .75rem; border: 1px solid var(--line); border-radius: .5rem; color: var(--text); background: var(--bg); font: inherit; }
+.ai-field textarea { resize: vertical; }
+.ai-two-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.ai-review { border-top: 1px solid var(--line); padding-top: 1.5rem; }
+.ai-review fieldset { border: 1px solid var(--line); border-radius: .5rem; padding: .8rem; min-width: 0; }
+.ai-choices { display: flex; flex-wrap: wrap; gap: .7rem; }
+.ai-notice { padding: 1rem; background: var(--surface); border-inline-start: 3px solid var(--accent); }
+.ai-notice ul { padding-inline-start: 1.3rem; }
+.ai-photo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1rem; }
+.ai-photo-grid img { width: 100%; aspect-ratio: 1; object-fit: contain; background: var(--surface); border-radius: .5rem; }
+.ai-chat-launch { position: fixed; bottom: max(1rem, env(safe-area-inset-bottom)); right: 1rem; z-index: 35; border: 1px solid var(--line); border-radius: 2rem; padding: .9rem 1.2rem; background: var(--accent); color: var(--on-accent); font: inherit; cursor: pointer; box-shadow: 0 4px 20px #0002; }
+.ai-chat-dialog { width: min(440px, calc(100vw - 1.5rem)); max-height: calc(100dvh - 2rem); margin: auto; border: 1px solid var(--line); border-radius: 1rem; padding: 0; background: var(--bg); color: var(--text); overflow: auto; }
+.ai-chat-dialog::backdrop { background: #0007; }
+.ai-chat-heading { display: flex; align-items: center; justify-content: space-between; padding: 1rem; border-bottom: 1px solid var(--line); }
+.ai-chat-heading h2 { font-size: 1.2rem; margin: 0; }
+.ai-chat-messages { max-height: 38dvh; overflow-y: auto; padding: 1rem; line-height: 1.55; overflow-wrap: anywhere; }
+.ai-chat-user { background: var(--surface); border-radius: .7rem; padding: .65rem .85rem; margin-block: .8rem; white-space: pre-wrap; }
+.ai-chat-reply { white-space: pre-wrap; }
+.ai-chat-form { display: grid; gap: .7rem; padding: 1rem; border-top: 1px solid var(--line); }
+.ai-consent { display: flex; align-items: flex-start; gap: .5rem; font-size: .8rem; }
+.ai-consent input { margin-top: .2rem; flex-shrink: 0; }
+.ai-privacy { color: var(--muted); font-size: .72rem; line-height: 1.5; margin: 0; }
+.ai-chat-error { margin: .5rem 1rem; padding: .5rem; border: 1px solid var(--accent); }
+.ai-recommendations { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem; }
+.ai-recommendations a { display: grid; align-content: start; gap: .4rem; text-decoration: none; font-size: .8rem; }
+.ai-recommendations img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: .4rem; }
+@media (max-width: 480px) { .ai-two-fields { grid-template-columns: 1fr; } .ai-chat-launch { max-width: calc(100vw - 2rem); font-size: .85rem; } }
 :root, :root[data-palette="champagne"] {
   --bg: #fbf8f3; --surface: #f2ede5; --card: #eee8df; --text: #302b27;
   --muted: #74695f; --line: #ded5c9; --accent: #6a372c; --on-accent: #fff8ee;
@@ -911,3 +942,7 @@ h2 { font-size: clamp(32px, 3.2vw, 48px); line-height: 1.12; letter-spacing: -.0
   .parcel-label-page .invoice-toolbar { display: none; }
   .parcel-label-sheet { margin: 0; border: 0; width: 90mm; max-width: 100%; padding: 3mm; }
 }
+.location-combobox > input[role="combobox"] { padding-right: 3rem; }
+.location-browse { position: absolute; top: 1px; right: 1px; bottom: 1px; width: 2.75rem; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--text); cursor: pointer; }
+.location-browse:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.location-browse:disabled { cursor: default; opacity: .5; }
