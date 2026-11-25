@@ -163,7 +163,7 @@ def llms(request, full=False):
 
 @never_cache
 @require_GET
-def storefront(request, order_id=None, product_slug=None, listing_kind=None, listing_slug=None):
+def storefront(request, order_id=None, product_slug=None, listing_kind=None, listing_slug=None, shipment_id=None):
     """React document with metadata visible to crawlers without JavaScript."""
     if request.path=='/':
         from django.http import HttpResponsePermanentRedirect

@@ -24,7 +24,7 @@ class PackagingTests(TestCase):
         self.pack_base = f'/api/control/operations/packaging/{self.order.pk}/'
 
     def pack(self):
-        return self.client.post(self.pack_base+'pack/', {'expected_version':self.order.revision, 'item_weight':'.5', 'item_quantity':1, 'checked':'on'})
+        return self.client.post(self.pack_base+'pack/', {'expected_version':self.order.revision, 'item_weight':'.5', 'item_quantity':1})
 
     def shipment(self, environment='live', state='booked'):
         self.account.environment = environment

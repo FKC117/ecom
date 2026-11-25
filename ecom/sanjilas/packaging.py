@@ -19,7 +19,6 @@ class PackForm(forms.Form):
     expected_version = forms.IntegerField(min_value=1)
     item_weight = forms.DecimalField(min_value=Decimal('0.5'), max_value=10, decimal_places=2, label='Packed parcel weight (kg)')
     item_quantity = forms.IntegerField(min_value=1, max_value=100, label='Number of parcels')
-    checked = forms.BooleanField(label='Items and quantities checked')
 
 
 def task_for_order(request, order, write=False):
@@ -94,7 +93,7 @@ def pack(request, pk):
     task.packed_by = request.user
     task.packed_at = timezone.now()
     task.save()
-    admin.site._registry[PackagingTask].log_change(request, task, 'Packed and checked against invoice.')
+    admin.site._registry[PackagingTask].log_change(request, task, 'Parcel packing details saved.')
     return JsonResponse({'ok':True})
 
 
