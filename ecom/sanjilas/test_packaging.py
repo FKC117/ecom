@@ -5,7 +5,7 @@ from django.utils import timezone
 from .commerce import transition_order
 from .couriers import Pathao
 from .courier_webhooks import process_one
-from .models import CourierEvent, PackagingTask, Shipment
+from .models import CourierEvent, PackagingTask, Shipment, SiteSettings
 from .test_couriers import CourierTests, CREDENTIALS
 
 
@@ -100,9 +100,23 @@ class PackagingTests(TestCase):
         response = self.client.get(f'/api/control/parcel-label/{row.pk}/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['shipment']['recipient_name'], 'Snapshot Recipient')
+        self.assertEqual([item['key'] for item in response.json()['formats']],['small','sticker','large'])
+        self.assertEqual(response.json()['shipment']['account'],self.account.name)
+        self.assertNotIn('(Live)',response.json()['shipment']['account'])
         self.assertNotIn('checkout_ip', response.content.decode())
         self.client.force_login(self.customer)
         self.assertEqual(self.client.get(f'/api/control/parcel-label/{row.pk}/').status_code, 403)
+
+    def test_courier_name_is_exact_and_label_uses_site_sender_without_tracking(self):
+        self.account.name='Pathao';self.account.save()
+        self.assertEqual(str(self.account),'Pathao')
+        site=SiteSettings.load();site.site_name='Our shop';site.invoice_address='Our pickup address';site.invoice_phone='01700000000';site.save()
+        self.processing();row=self.shipment()
+        row.request_payload['checkout_ip']='192.0.2.1';row.request_payload['browser_key']='private';row.save()
+        data=self.client.get(f'/api/control/parcel-label/{row.pk}/').json()
+        self.assertEqual(data['shipment']['account'],'Pathao')
+        self.assertEqual(data['sender'],{'name':'Our shop','address':'Our pickup address','phone':'01700000000'})
+        self.assertNotIn('checkout_ip',data['shipment']);self.assertNotIn('browser_key',data['shipment'])
 
     def test_cancellation_removes_task_from_queue(self):
         self.processing()

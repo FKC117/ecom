@@ -930,18 +930,83 @@ h2 { font-size: clamp(32px, 3.2vw, 48px); line-height: 1.12; letter-spacing: -.0
 .courier-panel .ops-order-block { margin-block: 1rem; overflow-wrap: anywhere; }
 .courier-lookup { max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .packaging-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,18rem),1fr)); gap: 1rem; }
-.parcel-label-page { padding: 1rem; color: var(--text); background: var(--bg); min-height: 100dvh; }
-.parcel-label-sheet { max-width: 100mm; margin: auto; padding: 5mm; border: 1px solid var(--line); overflow-wrap: anywhere; }
-.parcel-label-sheet h1 { font-size: 1.4rem; }
-.parcel-label-sheet h2 { font-size: 0.9rem; margin-bottom: 0.4rem; }
-.parcel-label-sheet section, .parcel-label-sheet footer { border-top: 1px solid var(--line); padding-top: 0.7rem; margin-top: 0.7rem; }
-.parcel-label-tracking { font: bold 1.3rem monospace; }
-.parcel-label-test { border: 2px solid currentColor; padding: 0.5rem; }
-@media print {
-  .parcel-label-page { padding: 0; background: white; color: black; }
-  .parcel-label-page .invoice-toolbar { display: none; }
-  .parcel-label-sheet { margin: 0; border: 0; width: 90mm; max-width: 100%; padding: 3mm; }
+/* Parcel labels: shared stylesheet, monochrome output for reliable printing. */
+.parcel-label-page { padding: 24px 16px 48px; min-height: 100dvh; background: var(--surface); color: var(--text); }
+.parcel-label-toolbar { max-width: 190mm; margin: 0 auto 24px; display: flex; flex-wrap: wrap; align-items: end; gap: 16px; }
+.parcel-label-toolbar label { display: grid; gap: 7px; min-width: min(100%,240px); }
+.parcel-label-toolbar select { color: var(--text); background: var(--bg); border: 1px solid var(--line); padding: 10px 12px; }
+.parcel-label-toolbar p { flex-basis: 100%; color: var(--muted); font-size: .85rem; }
+.parcel-label-sheet { box-sizing: border-box; margin: 0 auto; padding: 4mm; width: 80mm; max-width: 100%; border: .3mm solid #111; background: #fff; color: #111; font: 9pt/1.25 Arial,Helvetica,sans-serif; overflow-wrap: anywhere; }
+.parcel-label-sheet p, .parcel-label-sheet h1, .parcel-label-sheet h2, .parcel-label-sheet dl, .parcel-label-sheet dd { margin: 0; padding: 0; }
+.parcel-label-header { display: flex; align-items: center; gap: 3mm; margin-bottom: 2mm; }
+.parcel-label-logo { width: 14mm; height: 14mm; flex-shrink: 0; object-fit: contain; }
+.parcel-label-merchant { min-width: 0; flex: 1; }
+.parcel-label-merchant h1 { font: 700 11pt/1.15 Arial,Helvetica,sans-serif; margin-bottom: 1mm; }
+.parcel-label-merchant p { font-size: 7.5pt; }
+.parcel-label-courier { font-weight: 700; }
+.parcel-barcode { display: block; width: 100%; height: 14mm; background: #fff; fill: #000; stroke: none; shape-rendering: crispEdges; }
+.parcel-label-id { font: 700 10pt/1.2 monospace; letter-spacing: .3px; margin: .5mm 0 2mm; }
+.parcel-label-recipient { display: flex; gap: 4mm; padding: 2mm 0; border-top: .25mm solid #111; }
+.parcel-label-recipient > div { flex: 1; min-width: 0; }
+.parcel-label-kicker { font-size: 7pt; text-transform: uppercase; letter-spacing: .7px; margin-bottom: 1mm !important; }
+.parcel-label-recipient h2 { font: 700 11pt/1.2 Arial,Helvetica,sans-serif; }
+.parcel-label-phone { font-size: 10pt; margin: 1mm 0 !important; }
+.parcel-label-address { font-size: 8.5pt; }
+.parcel-label-details { border-top: .25mm solid #111; padding-top: 2mm; }
+.parcel-label-summary > p { display: flex; flex-wrap: wrap; gap: 1mm 2mm; margin-bottom: 1mm; }
+.parcel-label-summary span { font-size: 8pt; }
+.parcel-label-cod { align-items: baseline; font-size: 12pt; }
+.parcel-label-cod strong { background: #111; color: #fff; padding: .5mm 1.5mm; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+.parcel-label-test { border: .5mm solid #111; margin-bottom: 2mm; padding: 1mm; text-align: center; font-weight: 700; }
+.parcel-label-sticker { width: 100mm; height: 75mm; padding: 3mm; }
+.parcel-label-sticker .parcel-label-header { margin-bottom: 1mm; }
+.parcel-label-sticker .parcel-label-logo { width: 12mm; height: 12mm; }
+.parcel-label-sticker .parcel-barcode { height: 12mm; }
+.parcel-label-sticker .parcel-label-recipient { padding: 1.5mm 0; }
+.parcel-label-sticker .parcel-label-kicker { display: none; }
+.parcel-label-sticker .parcel-label-details { padding-top: 1.5mm; }
+.parcel-label-sticker .parcel-label-test { font-size: 7pt; line-height: 1.1; padding: .5mm; margin-bottom: 1mm; border-width: .3mm; }
+.parcel-label-sticker:has(.parcel-label-test) .parcel-barcode { height: 10mm; }
+.parcel-label-sticker:has(.parcel-label-test) .parcel-label-id { margin-bottom: 1mm; }
+.parcel-label-sticker:has(.parcel-label-test) .parcel-label-header { margin-bottom: 0; }
+.parcel-label-sticker:has(.parcel-label-test) .parcel-label-merchant h1 { font-size: 10pt; }
+.parcel-label-sticker:has(.parcel-label-test) .parcel-label-merchant p { font-size: 7pt; }
+.parcel-label-large { width: 186mm; padding: 0; font-size: 10pt; }
+.parcel-label-large .parcel-label-header { padding: 5mm; margin: 0; border-bottom: .3mm solid #111; }
+.parcel-label-large .parcel-label-logo { width: 22mm; height: 22mm; }
+.parcel-label-large .parcel-label-merchant h1 { font-size: 16pt; }
+.parcel-label-large .parcel-label-merchant p { font-size: 10pt; }
+.parcel-label-large .parcel-label-recipient { padding: 4mm 5mm; border: 0; align-items: center; }
+.parcel-label-large .parcel-label-recipient h2 { font-size: 14pt; }
+.parcel-label-large .parcel-label-phone { font-size: 12pt; }
+.parcel-label-large .parcel-label-address { font-size: 11pt; }
+.parcel-qr { width: 23mm; height: 23mm; flex-shrink: 0; fill: #000; background: #fff; shape-rendering: crispEdges; }
+.parcel-label-large .parcel-label-details { display: grid; grid-template-columns: 1fr 1fr; padding: 0; }
+.parcel-label-large .parcel-label-summary, .parcel-label-routing { padding: 4mm; min-width: 0; }
+.parcel-label-routing { border-left: .25mm solid #111; }
+.parcel-label-routing dl > div { display: grid; grid-template-columns: 18mm 1fr; gap: 2mm; margin-top: 1mm; }
+.parcel-label-routing dt { font-weight: 700; }
+.parcel-label-large .parcel-label-summary > p { margin-bottom: 2mm; }
+.parcel-label-instructions { white-space: pre-line; }
+@page parcelA4 { size: A4; margin: 12mm; }
+@page parcelSticker { size: 100mm 75mm; margin: 0; }
+@media (max-width: 620px) {
+  .parcel-label-large .parcel-label-details { grid-template-columns: 1fr; }
+  .parcel-label-large .parcel-label-routing { border-left: 0; border-top: .25mm solid #111; }
+  .parcel-label-toolbar { align-items: stretch; }
 }
+@media print {
+  html:has(.parcel-label-page), body:has(.parcel-label-page), body:has(.parcel-label-page) #root { margin: 0; padding: 0; min-height: 0; background: #fff; }
+  .parcel-label-page { padding: 0; min-height: 0; background: #fff; color: #000; }
+  .parcel-label-toolbar { display: none !important; }
+  .parcel-label-sheet { margin: 0; max-width: none; break-inside: avoid; }
+  .parcel-format-small, .parcel-format-large { page: parcelA4; }
+  .parcel-format-sticker { page: parcelSticker; }
+  .parcel-label-sticker { border: 0; }
+  .parcel-label-large .parcel-label-details { grid-template-columns: 1fr 1fr; }
+  .parcel-label-large .parcel-label-routing { border-left: .25mm solid #111; border-top: 0; }
+}
+
 .location-combobox > input[role="combobox"] { padding-right: 3rem; }
 .location-browse { position: absolute; top: 1px; right: 1px; bottom: 1px; width: 2.75rem; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--text); cursor: pointer; }
 .location-browse:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }

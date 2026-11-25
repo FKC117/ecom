@@ -176,6 +176,15 @@ def control_labels():
 
 def packaging_labels():
     return {
+        'parcel_format':'Print format', 'parcel_format_small':'Small label · A4',
+        'parcel_format_sticker':'Sticker · 100 × 75 mm', 'parcel_format_large':'Large label · A4',
+        'parcel_from':'From', 'parcel_to':'Deliver to', 'parcel_contact':'Contact', 'parcel_cod':'COD',
+        'parcel_weight':'Weight (kg)', 'parcel_count':'Parcels', 'parcel_order_date':'Order date',
+        'parcel_city':'City', 'parcel_zone':'Zone', 'parcel_area':'Area',
+        'parcel_service':'Service', 'parcel_instructions':'Instructions',
+        'parcel_print_hint':'Print at 100% / Actual size with browser headers and footers off. For stickers choose 100 × 75 mm paper.',
+        'parcel_barcode_error':'This consignment ID cannot be encoded. Check the shipment before printing.',
+        'parcel_sticker_overflow':'This address is too long for this sticker. Choose the Small or Large format to print all details.',
         'customer_zone':'Zone', 'search_zone':'Search zone', 'choose_zone':'Choose zone', 'location_zone_first':'Select a zone first.', 'location_more':'Show more locations',
         'courier_directory_title':'Courier locations',
         'courier_directory_help':'Booking uses saved locations from our database. One update imports every city, all its zones and all their areas.',

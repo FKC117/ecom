@@ -800,7 +800,7 @@ class CourierAccount(models.Model):
         return super().save(*args, **kwargs)
 
     def __str__(self):
-        return f'{self.name} ({self.get_environment_display()})'
+        return self.name
 
 
 class CourierLocation(models.Model):

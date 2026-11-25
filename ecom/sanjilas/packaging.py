@@ -12,7 +12,7 @@ from . import control, payments
 from .branding import public_settings
 from .models import Order, OrderItem, PackagingTask, Shipment, SiteSettings
 from .operations import allowed, page_data
-from .shipments import scoped
+from .shipments import scoped,BookingForm
 
 
 class PackForm(forms.Form):
@@ -134,6 +134,17 @@ def label(request, shipment_id):
     task_for_order(request, order)
     if shipment.state != 'booked' or not shipment.consignment_id:
         raise ValidationError('Book the courier before printing the parcel label.')
-    return JsonResponse({'site':public_settings(SiteSettings.load(), request), 'labels':control.labels(),
-        'shipment':{'account':str(shipment.account), 'environment':shipment.environment, 'consignment_id':shipment.consignment_id,
-                    'reference':order.reference, **shipment.request_payload}})
+    site=SiteSettings.load()
+    labels=control.labels()
+    payload=shipment.request_payload
+    fields=('recipient_name','recipient_phone','recipient_secondary_phone','recipient_address','amount_to_collect','item_weight','item_quantity','special_instruction','delivery_type')
+    return JsonResponse({'site':public_settings(site, request), 'labels':labels,
+        'formats':[{'key':'small','label':labels['parcel_format_small']},
+                   {'key':'sticker','label':labels['parcel_format_sticker']},
+                   {'key':'large','label':labels['parcel_format_large']}],
+        'shipment':{**{field:payload.get(field,'') for field in fields},
+                    'account':shipment.account.name, 'environment':shipment.environment, 'consignment_id':shipment.consignment_id,
+                    'reference':order.reference,'created_at':order.created_at.isoformat(),'currency':order.currency,
+                    'city':order.city,'zone':order.zone,'area':order.area,
+                    'delivery_service':dict(BookingForm.base_fields['delivery_type'].choices).get(payload.get('delivery_type'),'')},
+        'sender':{'name':site.site_name,'address':site.invoice_address,'phone':site.invoice_phone}})
