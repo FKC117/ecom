@@ -38,6 +38,25 @@ def page_data(rows, request):
     return page,{'page':page.number,'pages':page.paginator.num_pages,'count':page.paginator.count}
 
 
+def courier_summaries(request,orders):
+    """Read webhook-updated shipment records in one batch; never contact a courier."""
+    from .models import Shipment,CourierAccount
+    shipment_admin=admin.site._registry[Shipment]
+    account_admin=admin.site._registry[CourierAccount]
+    if not allowed(shipment_admin,request) or not allowed(account_admin,request):return {}
+    accounts={account.pk for account in account_admin.get_queryset(request) if allowed(account_admin,request,account)}
+    rows=shipment_admin.get_queryset(request).filter(order_id__in=[obj.pk for obj in orders],account_id__in=accounts).select_related('account').order_by('order_id','environment','-updated_at')
+    result={}
+    for row in rows:
+        if not allowed(shipment_admin,request,row):continue
+        previous=result.get(row.order_id)
+        if previous and (previous['environment']=='live' or row.environment!='live'):continue
+        result[row.order_id]={'id':row.pk,'account':row.account.name,'environment':row.environment,
+            'environment_label':row.get_environment_display(),'status':(row.courier_status or row.get_state_display()).replace('_',' ').replace('-',' '),
+            'consignment_id':row.consignment_id,'updated_at':row.updated_at.isoformat()}
+    return result
+
+
 @control.operator_required
 @require_GET
 def orders(request):
@@ -63,9 +82,10 @@ def orders(request):
         if not can_review: raise PermissionDenied
         visible = [obj for obj in visible if obj.review_status == 'pending' and obj.status != 'cancelled']
     page,meta=page_data(visible,request)
+    couriers=courier_summaries(request,page)
     return control.JsonResponse({**meta,'can_review':can_review,'counts':counts,'statuses':list(Order.Status.choices),'rows':[
         {'id':str(obj.pk),'reference':obj.reference,'source':obj.source,**payments.summary(obj),'delivery_zone':obj.delivery_zone,'revision':obj.revision,'can_mark_payment':allowed(ma,request,obj,True) and request.user.has_perm('sanjilas.mark_payment'),
-        'customer':obj.customer_name,'status':obj.status,'review_status':obj.review_status if can_review else None,**payments.summary(obj),
+        'customer':obj.customer_name,'status':obj.status,'courier':couriers.get(obj.pk),'review_status':obj.review_status if can_review else None,**payments.summary(obj),
          'total':obj.total,'currency':obj.currency,'created_at':obj.created_at.isoformat()} for obj in page]})
 
 

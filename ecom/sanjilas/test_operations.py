@@ -88,6 +88,43 @@ class OperationsTests(TestCase):
         self.assertEqual(response.status_code,200)
         self.assertEqual(self.client.get('/api/control/operations/orders/?status=placed').json()['count'],0)
 
+    @patch('sanjilas.couriers.Pathao.transport',side_effect=AssertionError('Orders must read saved courier status only'))
+    def test_orders_show_latest_saved_courier_status_without_api_calls(self,transport):
+        from .models import CourierAccount,Shipment
+        from .commerce import transition_order
+        order=self.order()
+        transition_order(order.pk,'processing');transition_order(order.pk,'shipped')
+        account=CourierAccount.objects.create(name='Pathao',environment='live',store_id=1)
+        shipment=Shipment.objects.create(order=order,account=account,environment='live',state='booked',
+            merchant_order_id='ops-live',consignment_id='TEST-OPS',courier_status='Received_at_Last_Mile_HUB',actor=self.owner)
+        row=self.client.get('/api/control/operations/orders/').json()['rows'][0]
+        self.assertEqual(row['status'],'shipped')
+        self.assertEqual(row['courier']['account'],'Pathao')
+        self.assertEqual(row['courier']['status'],'Received at Last Mile HUB')
+        Shipment.objects.filter(pk=shipment.pk).update(courier_status='Assigned_for_Delivery')
+        row=self.client.get('/api/control/operations/orders/').json()['rows'][0]
+        self.assertEqual(row['courier']['status'],'Assigned for Delivery')
+        transport.assert_not_called()
+
+    def test_order_courier_summary_respects_permissions_and_prefers_live(self):
+        from .models import CourierAccount,Shipment
+        order=self.order()
+        live=CourierAccount.objects.create(name='Real courier',environment='live',store_id=1)
+        sandbox=CourierAccount.objects.create(name='Test courier',environment='sandbox',store_id=2)
+        real=Shipment.objects.create(order=order,account=live,environment='live',state='booked',merchant_order_id='ops-real',courier_status='In_Transit',actor=self.owner)
+        Shipment.objects.create(order=order,account=sandbox,environment='sandbox',state='booked',merchant_order_id='ops-test',courier_status='Delivered',actor=self.owner)
+        endpoint='/api/control/operations/orders/'
+        self.assertEqual(self.client.get(endpoint).json()['rows'][0]['courier']['account'],'Real courier')
+        self.grant('view_order')
+        self.assertIsNone(self.client.get(endpoint).json()['rows'][0]['courier'])
+        self.client.force_login(self.owner)
+        with patch.object(admin.site._registry[Shipment],'get_queryset',return_value=Shipment.objects.none()):
+            self.assertIsNone(self.client.get(endpoint).json()['rows'][0]['courier'])
+        with patch.object(admin.site._registry[Shipment],'has_view_or_change_permission',side_effect=lambda request,obj=None:obj is None or obj.pk!=real.pk):
+            self.assertEqual(self.client.get(endpoint).json()['rows'][0]['courier']['environment'],'sandbox')
+        with patch.object(admin.site._registry[CourierAccount],'get_queryset',return_value=CourierAccount.objects.none()):
+            self.assertIsNone(self.client.get(endpoint).json()['rows'][0]['courier'])
+
     def test_stock_adjustment_requires_csrf(self):
         client=Client(enforce_csrf_checks=True);client.force_login(self.owner)
         self.assertEqual(client.post(f'/api/control/operations/stock/product/{self.product.pk}/adjust/',{'delta':1,'expected':10,'note':'Delivery'}).status_code,403)

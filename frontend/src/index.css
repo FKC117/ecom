@@ -1011,3 +1011,6 @@ h2 { font-size: clamp(32px, 3.2vw, 48px); line-height: 1.12; letter-spacing: -.0
 .location-browse { position: absolute; top: 1px; right: 1px; bottom: 1px; width: 2.75rem; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--text); cursor: pointer; }
 .location-browse:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 .location-browse:disabled { cursor: default; opacity: .5; }
+.ops-status-stack { display: grid; justify-items: start; gap: 8px; }
+.ops-courier-status { display: grid; gap: 3px; max-width: 20rem; white-space: normal; overflow-wrap: anywhere; font-size: .8rem; line-height: 1.4; color: var(--muted); }
+.ops-courier-status strong { color: var(--text); font-weight: 600; }
